@@ -1,0 +1,35 @@
+# Boot, kernel, filesystem and recovery essentials (blueprint §5 M1).
+# One package per line; '#' starts a comment. Concatenated into
+# iso/profile/packages.x86_64 by scripts/generate-package-list.sh.
+
+base
+linux
+linux-lts
+linux-firmware
+archlinux-keyring
+pacman-mirrorlist
+sudo
+btrfs-progs
+dosfstools
+grub
+efibootmgr
+os-prober
+mkinitcpio
+which
+less
+iproute2
+iputils
+networkmanager
+wpa_supplicant
+nano
+vim
+git
+htop
+pciutils
+usbutils
+man-db
+man-pages
+logrotate
+jq
+gptfdisk
+parted

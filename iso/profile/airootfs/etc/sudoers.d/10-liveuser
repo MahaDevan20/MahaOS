@@ -1,0 +1,3 @@
+# Live-session only. Removed from installed systems by
+# installer/postinstall/10-cleanup.sh.
+liveuser ALL=(ALL) NOPASSWD: ALL

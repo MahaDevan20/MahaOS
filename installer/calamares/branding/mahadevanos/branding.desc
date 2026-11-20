@@ -1,0 +1,39 @@
+# Calamares branding for MahaDevan's OS.
+# Display name may carry the apostrophe; technical identifiers never do.
+---
+componentName: mahadevanos
+
+strings:
+    productName:         "MahaDevan's OS"
+    shortProductName:    "MahaDevan OS"
+    version:             "0.1"
+    shortVersion:        "0.1"
+    versionedName:       "MahaDevan's OS 0.1"
+    shortVersionedName:  "MahaDevan OS 0.1"
+    bootloaderEntryName: "MahaDevan OS"
+    productUrl:          "https://github.com/mahadevan"
+    supportUrl:          "https://github.com/mahadevan"
+    knownIssuesUrl:      "https://github.com/mahadevan"
+    releaseNotesUrl:     "https://github.com/mahadevan"
+
+    # Shown on the welcome page.
+    welcomeStyleCalamares: true
+    welcomeExpandingLogo: false
+
+    # Summary page.
+    supportUrl: "https://github.com/mahadevan"
+
+images:
+    productLogo:         "logo.png"
+    productIcon:         "logo.png"
+    productWelcome:      "welcome.png"
+
+slideshow:               "show.qml"
+slideshowAPI:            2
+
+# Branding colours are applied export-style (QML).
+style:
+    sidebarBackground:   "#101820"
+    sidebarText:         "#e6edf3"
+    sidebarTextSelect:   "#23ebd1"
+    sidebarTextHighlight: "#23ebd1"

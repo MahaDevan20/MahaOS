@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Install MahaDevan's OS
+Comment=Install this system to disk (offline, Garuda-style)
+Exec=pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY QT_QPA_PLATFORMTHEME= calamares
+Icon=calamares
+Terminal=false
+Categories=System;
+StartupNotify=true

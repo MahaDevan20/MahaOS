@@ -1,0 +1,15 @@
+[General]
+Version=203
+ViewMode=Detail
+ShowFullPath=false
+ShowSpaceInfo=true
+BrowseThroughArchives=true
+
+[Details]
+PreviewSize=64
+
+[MainWindow]
+MenuBar=Disabled
+
+[InformationPanel]
+Show=false

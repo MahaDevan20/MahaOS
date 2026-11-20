@@ -1,0 +1,14 @@
+# Welcome to MahaDevan's OS (live session)
+#
+#   Install:  click "Install MahaDevan's OS" on the desktop, or run
+#               sudo -E calamares
+#
+#   Live user: liveuser   password: live   (sudo without password)
+#   This account exists ONLY in the live session. The installer creates your
+#   real account and removes every live-only artefact afterwards.
+#
+#   If Hyprland fails to start, pick the "labwc" session in SDDM, or reboot and
+#   choose "MahaDevan's OS (safe graphics)" in the boot menu.
+#
+#   Nothing is written to your disks until you confirm the target device in the
+#   installer.

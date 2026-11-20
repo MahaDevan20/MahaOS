@@ -1,0 +1,11 @@
+NAME="MahaDevan OS"
+PRETTY_NAME="MahaDevan's OS"
+ID=mahadevanos
+ID_LIKE=arch
+BUILD_ID=rolling
+ANSI_COLOR="38;2;23;147;209"
+HOME_URL="https://github.com/mahadevan"
+DOCUMENTATION_URL="https://github.com/mahadevan"
+SUPPORT_URL="https://github.com/mahadevan"
+BUG_REPORT_URL="https://github.com/mahadevan"
+LOGO=mahadevanos

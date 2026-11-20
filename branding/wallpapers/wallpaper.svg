@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440">
+  <defs>
+    <radialGradient id="glow" cx="0.72" cy="0.24" r="0.75">
+      <stop offset="0" stop-color="#17414a"/>
+      <stop offset="0.55" stop-color="#101a22"/>
+      <stop offset="1" stop-color="#080d12"/>
+    </radialGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#23ebd1" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#23ebd1" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#23ebd1" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" fill="none" stroke="#1d2a35" stroke-width="1" stroke-opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <rect width="2560" height="1440" fill="url(#glow)"/>
+  <rect width="2560" height="1440" fill="url(#grid)"/>
+
+  <circle cx="1840" cy="330" r="210" fill="none" stroke="#23ebd1" stroke-opacity="0.18" stroke-width="2"/>
+  <circle cx="1840" cy="330" r="150" fill="none" stroke="#23ebd1" stroke-opacity="0.12" stroke-width="2"/>
+
+  <path d="M640 900 L960 640 L1280 820 L1600 520 L1920 760" fill="none"
+        stroke="url(#line)" stroke-width="4"/>
+
+  <text x="220" y="1180" font-family="DejaVu Sans, sans-serif" font-size="86"
+        font-weight="bold" fill="#e6edf3" letter-spacing="2">MahaDevan's OS</text>
+  <text x="224" y="1246" font-family="DejaVu Sans, sans-serif" font-size="34"
+        fill="#6b7d8f" letter-spacing="6">ARCH LINUX · HYPRLAND · BTRFS</text>
+</svg>

@@ -1,0 +1,63 @@
+# Manual install test (human checklist)
+
+The installer is a GUI. An agent can build and boot the ISO, but it cannot click
+through Calamares, so this checklist is the human half of M2/M3 acceptance.
+
+## Prepare
+
+```bash
+./scripts/build-iso.sh
+./scripts/test-install.sh --prepare     # creates build/test-disk.qcow2 (40G, virtual)
+```
+
+The VM has **only** the virtual disk attached. Your real disks are not visible to
+it. In the VM's firmware, confirm UEFI/OVMF is used (no legacy BIOS entry).
+
+## Live session
+
+- [ ] ISO boots to the SDDM login, then auto-logs into Hyprland as `liveuser`
+- [ ] Desktop appears: wallpaper, kitty opens with `SUPER+Return`
+- [ ] `nm-applet` / NetworkManager shows an interface; Ethernet gets a DHCP lease
+- [ ] Sound device present (`wpctl status` inside kitty)
+- [ ] "Install MahaDevan's OS" icon starts Calamares
+- [ ] Reboot and pick **safe graphics**: the session still starts (labwc fallback
+      must be selectable in SDDM)
+
+## Install
+
+- [ ] Welcome page passes its checks (no internet requirement)
+- [ ] Locale, keyboard, timezone set
+- [ ] Partitioning: "Erase disk" on the 40 GiB virtio disk, Btrfs selected,
+      **no encryption** for the base test
+- [ ] User created with a password; hostname set; no autologin checkbox
+- [ ] Install completes with the VM's network **disconnected** (offline proof):
+      `-netdev user,id=n0` removed, or unplug the virtual NIC in the UI
+
+## Installed system
+
+- [ ] Reboot without the ISO reaches the GRUB menu, then SDDM
+- [ ] Login as the created user works
+- [ ] `cat /etc/os-release` shows `ID=mahadevanos`, `ID_LIKE=arch`
+- [ ] `id liveuser` fails: no live account survived
+- [ ] `/etc/sudoers.d/10-liveuser` does not exist
+- [ ] No autologin: `/etc/sddm.conf.d/10-live-autologin.conf` is gone
+- [ ] `lsblk -f` shows Btrfs with subvolumes `@`, `@home`, `@log`, `@cache`, `@snapshots`
+- [ ] `mount | grep ' / '` shows `compress=zstd:1,noatime`
+- [ ] `sudo pacman -Syu` works (mirrors + keyring valid)
+- [ ] `sudo ufw status` reports `active` with deny incoming
+- [ ] Network works, audio works, kitty and dolphin open
+- [ ] `sudo btrfs subvolume list /` and `sudo snapper list` respond
+
+## Snapshots (M3)
+
+- [ ] `sudo pacman -S htop` creates pre/post snapshots (`sudo snapper list`)
+- [ ] Reboot: GRUB shows a **Snapshots** submenu listing them
+- [ ] Boot a snapshot read-only, verify the system reaches a usable state
+- [ ] Roll back per `documentation/recovery/snapshot-rollback.md` and confirm the
+      system boots normally again
+
+## Report
+
+Record: ISO checksum, VM firmware mode, GPU model, pass/fail per line, and attach
+`out/test-boot.log`, `out/test-install.log` and any screenshot. Failures belong in
+`documentation/known-issues.md`, not in a chat message.

@@ -1,0 +1,71 @@
+# Desktop session (Hyprland), apps, audio, networking UI, firewall, snapshots.
+
+# Compositor + fallback session
+hyprland
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+qt5-wayland
+qt6-wayland
+polkit-kde-agent
+hyprpolkitagent
+labwc
+wofi
+grim
+slurp
+wl-clipboard
+swaybg
+xdg-utils
+
+# Display manager
+sddm
+
+# Audio
+pipewire
+pipewire-pulse
+pipewire-alsa
+pipewire-jack
+wireplumber
+
+# Networking / Bluetooth UI
+network-manager-applet
+blueman
+bluez
+bluez-utils
+
+# Files, terminal, theming
+dolphin
+kio-extras
+ark
+ffmpegthumbs
+kdegraphics-thumbnailers
+kitty
+papirus-icon-theme
+breeze-icons
+noto-fonts
+noto-fonts-emoji
+ttf-dejavu
+ttf-liberation
+cantarell-fonts
+
+# System tools
+snapper
+snap-pac
+grub-btrfs
+inotify-tools
+btrfs-assistant
+flatpak
+ufw
+# systemd-timesyncd ships inside the systemd package on Arch; enable the unit only.
+zram-generator
+power-profiles-daemon
+pavucontrol
+btop
+udisks2
+gvfs
+gvfs-mtp
+xdg-user-dirs
+accountsservice
+
+# Project packages built into repo/ by scripts/build-repo.sh
+mahadevanos-branding
+mahadevanos-settings

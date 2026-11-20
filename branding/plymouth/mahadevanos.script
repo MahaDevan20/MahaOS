@@ -1,0 +1,20 @@
+# Minimal Plymouth script: scale the wallpaper to the screen, keep the logo centred.
+# Intentionally no animation: a static splash cannot fail at boot.
+wallpaper = Image("background.png");
+logo = Image("logo.png");
+
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+
+bg = wallpaper.Scale(screen_w, screen_h);
+bg_sprite = Sprite(bg);
+bg_sprite.SetX(0);
+bg_sprite.SetY(0);
+bg_sprite.SetZ(-100);
+
+logo_w = logo.GetWidth();
+logo_h = logo.GetHeight();
+logo_sprite = Sprite(logo);
+logo_sprite.SetX((screen_w - logo_w) / 2);
+logo_sprite.SetY((screen_h - logo_h) / 2);
+logo_sprite.SetZ(10);

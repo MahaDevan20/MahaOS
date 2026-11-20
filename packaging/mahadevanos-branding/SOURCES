@@ -1,0 +1,15 @@
+branding/logo.svg
+branding/logo.png
+branding/wallpapers/wallpaper.svg
+branding/wallpapers/wallpaper.png
+branding/grub/theme.txt
+branding/grub/background.png
+branding/plymouth/mahadevanos.plymouth
+branding/plymouth/mahadevanos.script
+branding/plymouth/background.png
+branding/plymouth/logo.png
+configs/grub/grub-defaults
+configs/ufw/ufw.conf
+configs/ufw/default
+configs/sddm/10-mahadevanos.conf
+iso/profile/airootfs/etc/os-release

@@ -1,0 +1,62 @@
+# Maintainer: MahaDevan
+# Installed-system branding, GRUB theme/defaults, SDDM drop-in, firewall defaults
+# and os-release. The source tarball is produced locally by scripts/build-repo.sh
+# from the paths in SOURCES, so the package builds in a clean chroot without network.
+pkgname=mahadevanos-branding
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Branding, boot theme and system defaults for MahaDevan's OS"
+arch=('any')
+url="https://github.com/mahadevan"
+license=('MIT')
+depends=('grub' 'sddm' 'ufw')
+source=("${pkgname}-assets.tar.zst")
+sha256sums=('SKIP')
+
+prepare() {
+  tar -xf "${srcdir}/${pkgname}-assets.tar.zst" -C "$srcdir"
+}
+
+package() {
+  install -d "$pkgdir/usr/share/backgrounds/mahadevanos"
+  install -Dm644 "$srcdir/branding/logo.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/mahadevanos.svg"
+  install -Dm644 "$srcdir/branding/logo.png" \
+    "$pkgdir/usr/share/pixmaps/mahadevanos.png"
+  install -Dm644 "$srcdir/branding/wallpapers/wallpaper.svg" \
+    "$pkgdir/usr/share/backgrounds/mahadevanos/wallpaper.svg"
+  install -Dm644 "$srcdir/branding/wallpapers/wallpaper.png" \
+    "$pkgdir/usr/share/backgrounds/mahadevanos/wallpaper.png"
+
+  # GRUB theme and defaults
+  install -d "$pkgdir/boot/grub/themes/mahadevanos"
+  install -m644 "$srcdir/branding/grub/theme.txt" \
+    "$pkgdir/boot/grub/themes/mahadevanos/theme.txt"
+  install -m644 "$srcdir/branding/grub/background.png" \
+    "$pkgdir/boot/grub/themes/mahadevanos/background.png"
+  install -Dm644 "$srcdir/configs/grub/grub-defaults" "$pkgdir/etc/default/grub"
+
+  # Plymouth theme (enabled in M4; harmless while disabled)
+  install -d "$pkgdir/usr/share/plymouth/themes/mahadevanos"
+  install -m644 "$srcdir/branding/plymouth/mahadevanos.plymouth" \
+    "$pkgdir/usr/share/plymouth/themes/mahadevanos/mahadevanos.plymouth"
+  install -m644 "$srcdir/branding/plymouth/mahadevanos.script" \
+    "$pkgdir/usr/share/plymouth/themes/mahadevanos/mahadevanos.script"
+  install -m644 "$srcdir/branding/plymouth/background.png" \
+    "$pkgdir/usr/share/plymouth/themes/mahadevanos/background.png"
+  install -m644 "$srcdir/branding/plymouth/logo.png" \
+    "$pkgdir/usr/share/plymouth/themes/mahadevanos/logo.png"
+
+  # SDDM, firewall, os-release
+  install -Dm644 "$srcdir/configs/sddm/10-mahadevanos.conf" \
+    "$pkgdir/etc/sddm.conf.d/10-mahadevanos.conf"
+  install -Dm644 "$srcdir/configs/ufw/ufw.conf" "$pkgdir/etc/ufw/ufw.conf"
+  install -Dm644 "$srcdir/configs/ufw/default" "$pkgdir/etc/default/ufw"
+  install -Dm644 "$srcdir/iso/profile/airootfs/etc/os-release" \
+    "$pkgdir/usr/lib/os-release"
+  ln -s ../usr/lib/os-release "$pkgdir/etc/os-release"
+
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'EOF'
+MIT License — Copyright (c) 2026 MahaDevan. See the repository LICENSE file.
+EOF
+}

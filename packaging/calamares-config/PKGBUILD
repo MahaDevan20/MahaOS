@@ -1,0 +1,33 @@
+# Maintainer: MahaDevan
+# Calamares configuration and post-install scripts. Live-only: removed from the
+# target by /usr/share/mahadevanos/postinstall/99-cleanup.sh.
+pkgname=calamares-config
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Calamares offline installer configuration for MahaDevan's OS"
+arch=('any')
+url="https://github.com/mahadevan"
+license=('MIT')
+depends=('calamares')
+source=("${pkgname}-assets.tar.zst")
+sha256sums=('SKIP')
+
+prepare() {
+  tar -xf "${srcdir}/${pkgname}-assets.tar.zst" -C "$srcdir"
+}
+
+package() {
+  # Calamares looks for /etc/calamares/settings.conf and a branding directory
+  # named by `branding:` there or under /usr/share/calamares/branding.
+  install -d "$pkgdir/etc/calamares/modules"
+  install -m644 "$srcdir/installer/calamares/settings.conf" "$pkgdir/etc/calamares/settings.conf"
+  install -m644 "$srcdir/installer/calamares/modules/"*.conf "$pkgdir/etc/calamares/modules/"
+
+  install -d "$pkgdir/usr/share/calamares/branding/mahadevanos"
+  install -m644 "$srcdir/installer/calamares/branding/mahadevanos/"* \
+    "$pkgdir/usr/share/calamares/branding/mahadevanos/"
+
+  install -d "$pkgdir/usr/share/mahadevanos/postinstall"
+  install -m755 "$srcdir/installer/postinstall/"*.sh \
+    "$pkgdir/usr/share/mahadevanos/postinstall/"
+}

@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=MahaDevan's OS
+Description=Dark boot splash with the MahaDevan's OS logo
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/mahadevanos
+ScriptFile=/usr/share/plymouth/themes/mahadevanos/mahadevanos.script

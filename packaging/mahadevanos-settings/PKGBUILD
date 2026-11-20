@@ -1,0 +1,39 @@
+# Maintainer: MahaDevan
+# System-wide desktop defaults. Everything lands under /etc/xdg so a user's own
+# ~/.config always wins, and /etc/skel gets a copy for newly created accounts.
+pkgname=mahadevanos-settings
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Hyprland, Kitty, Dolphin and snapper defaults for MahaDevan's OS"
+arch=('any')
+url="https://github.com/mahadevan"
+license=('MIT')
+depends=('hyprland' 'kitty' 'dolphin' 'snapper')
+source=("${pkgname}-assets.tar.zst")
+sha256sums=('SKIP')
+
+prepare() {
+  tar -xf "${srcdir}/${pkgname}-assets.tar.zst" -C "$srcdir"
+}
+
+package() {
+  install -d "$pkgdir/etc/xdg/hypr/conf.d"
+  install -m644 "$srcdir/configs/hypr/hyprland.conf" "$pkgdir/etc/xdg/hypr/hyprland.conf"
+  install -m644 "$srcdir/configs/hypr/conf.d/"*.conf "$pkgdir/etc/xdg/hypr/conf.d/"
+
+  install -Dm644 "$srcdir/configs/kitty/kitty.conf" "$pkgdir/etc/xdg/kitty/kitty.conf"
+  install -Dm644 "$srcdir/configs/dolphin/dolphinrc" "$pkgdir/etc/xdg/dolphinrc"
+  install -Dm644 "$srcdir/configs/snapper/root" "$pkgdir/etc/snapper/configs/root"
+
+  # Skeleton for new users, so a first login already looks like MahaDevan's OS.
+  install -d "$pkgdir/etc/skel/.config/hypr/conf.d"
+  install -m644 "$srcdir/configs/hypr/hyprland.conf" \
+    "$pkgdir/etc/skel/.config/hypr/hyprland.conf"
+  install -m644 "$srcdir/configs/hypr/conf.d/"*.conf \
+    "$pkgdir/etc/skel/.config/hypr/conf.d/"
+  install -Dm644 "$srcdir/configs/kitty/kitty.conf" \
+    "$pkgdir/etc/skel/.config/kitty/kitty.conf"
+
+  install -Dm644 "$srcdir/configs/quickshell/README.md" \
+    "$pkgdir/usr/share/doc/mahadevanos/quickshell.md"
+}

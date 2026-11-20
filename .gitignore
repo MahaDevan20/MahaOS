@@ -1,0 +1,38 @@
+# Build output
+/build/
+/out/
+*.iso
+*.iso.sha256
+*.iso.manifest.txt
+*.qcow2
+*.fd
+*.log
+
+# Local pacman repository binaries (PKGBUILDs are tracked)
+/repo/x86_64/*.pkg.tar*
+/repo/x86_64/*.db
+/repo/x86_64/*.db.sig
+/repo/x86_64/*.files
+/repo/x86_64/*.files.sig
+/repo/*.db*
+/repo/*.files*
+
+# Packaging work dirs
+/packaging/**/src/
+/packaging/**/pkg/
+/packaging/**/*.pkg.tar*
+/packaging/**/*-assets.tar.zst
+
+# Secrets and keys
+keys/
+.env
+.env.*
+*.gpg
+*.key
+*.pem
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/

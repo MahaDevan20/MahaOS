@@ -1,0 +1,24 @@
+# /etc/default/grub for MahaDevan's OS (installed by mahadevanos-branding).
+# Kernels live inside the Btrfs root so a snapshot rollback also rolls the kernel,
+# which is the reason GRUB was chosen over systemd-boot (blueprint §2 #2).
+
+GRUB_DEFAULT=saved
+GRUB_SAVEDEFAULT=true
+GRUB_TIMEOUT=5
+GRUB_TIMEOUT_STYLE=menu
+GRUB_DISTRIBUTOR="MahaDevan OS"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet nowatchdog zswap.enabled=0"
+GRUB_CMDLINE_LINUX=""
+
+# Find other operating systems (dual boot). Requires os-prober.
+GRUB_DISABLE_OS_PROBER=false
+
+# Branding theme; grub-btrfs adds the snapshot submenu into this menu.
+GRUB_THEME="/boot/grub/themes/mahadevanos/theme.txt"
+GRUB_BACKGROUND="/boot/grub/themes/mahadevanos/background.png"
+
+# Keep a visible menu after a failed boot so snapshots stay reachable.
+GRUB_RECORDFAIL_TIMEOUT=10
+GRUB_DISABLE_RECOVERY=false
+
+# Default kernel is `linux`; `linux-lts` is generated as a menu entry for recovery.

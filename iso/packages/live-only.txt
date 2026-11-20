@@ -1,0 +1,7 @@
+# Live-session only packages. These must never be installed on a target system.
+# calamares and ckbcomp come from the local repo built by scripts/build-repo.sh.
+calamares
+calamares-config
+ckbcomp
+hwinfo
+ntfs-3g

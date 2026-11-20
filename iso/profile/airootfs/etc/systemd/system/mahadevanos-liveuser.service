@@ -1,0 +1,17 @@
+# Live-only: gives liveuser the device/desktop groups after the packages have
+# created them, and fixes home ownership. Never installed on a target system.
+[Unit]
+Description=MahaDevan's OS live user setup
+After=local-fs.target systemd-sysusers.service
+Before=graphical.target sddm.service
+ConditionPathExists=/etc/mahadevanos-live
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/usermod -aG wheel,audio,video,render,storage,optical,network,power,sys,seat liveuser
+ExecStart=/usr/bin/chown -R liveuser:liveuser /home/liveuser
+ExecStart=/usr/bin/install -o liveuser -g liveuser -m 0644 /etc/skel/README.live /home/liveuser/README.live
+
+[Install]
+WantedBy=multi-user.target

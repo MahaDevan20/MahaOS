@@ -1,0 +1,49 @@
+# GRUB theme for MahaDevan's OS. Readability first: the menu must stay legible on
+# a 1366x768 laptop panel. Installed to /boot/grub/themes/mahadevanos/.
+
+title-text: ""
+desktop-image: "background.png"
+desktop-color: "#080d12"
+terminal-font: "Unifont Regular 16"
+terminal-box: "terminal_box_*.png"
+terminal-left: "12%"
+terminal-top: "12%"
+terminal-width: "76%"
+terminal-height: "70%"
+terminal-border: "0"
+
+# Boot menu
++ boot_menu {
+    left = 12%
+    top = 30%
+    width = 62%
+    height = 46%
+    item_font = "Unifont Regular 16"
+    item_color = "#c7d1db"
+    selected_item_color = "#23ebd1"
+    item_height = 34
+    item_padding = 6
+    item_spacing = 4
+    selected_item_pixmap_style = "select_*.png"
+    scrollbar = false
+}
+
++ label {
+    left = 12%
+    top = 12%
+    width = 500
+    height = 40
+    text = "MahaDevan's OS"
+    font = "Unifont Regular 16"
+    color = "#23ebd1"
+}
+
++ label {
+    left = 12%
+    top = 80%
+    width = 900
+    height = 60
+    text = "Use the Snapshots submenu to boot a previous system state."
+    font = "Unifont Regular 16"
+    color = "#6b7d8f"
+}
