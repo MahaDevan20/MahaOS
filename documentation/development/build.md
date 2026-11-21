@@ -39,14 +39,17 @@ What the script does, in order:
 
 1. Regenerates `iso/profile/packages.x86_64` from `iso/packages/*.txt`.
 2. Copies the profile to `build/profile` (the tracked profile is never mutated).
-3. Rewrites the local repo `Server` line to this checkout's absolute path.
-4. Resolves `@ISO_LABEL@` in the boot entries to `MAHADEVANOS_YYYYMM`.
+3. Rewrites the local repo `Server` line to this checkout's absolute path and
+   substitutes `@PINNED_DATE@` in `pacman.conf` with the date from `PINNED_DATE`
+   (pacman expands only `$repo` and `$arch`, so the date has to be literal).
+4. Resolves `@ISO_LABEL@` everywhere in the working profile to `MAHADEVANOS_YYYYMM`
+   and refuses to continue if any placeholder is left behind.
 5. Runs `sudo mkarchiso -v -w build/work -o out build/profile`.
 6. Writes `out/mahadevanos-<date>-x86_64.iso.manifest.txt` from the built airootfs,
    then runs `iso/checks/check-repo-origins.sh` on it.
 7. Writes the `.sha256`.
 
-Pinning: `ARCHISO_PINNED_DATE` comes from `PINNED_DATE`; change the date to move
+Pinning: the date in `PINNED_DATE` is what pins the archive URLs; change it to move
 the whole ISO to a newer Arch snapshot. The **installed** system always uses normal
 mirrors — the install script rewrites the mirrorlist.
 

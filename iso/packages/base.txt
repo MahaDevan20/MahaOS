@@ -15,6 +15,10 @@ grub
 efibootmgr
 os-prober
 mkinitcpio
+# Ships /usr/lib/initcpio/{hooks,install}/archiso. Without it mkinitcpio logs
+# "Hook 'archiso' cannot be found" and the initramfs cannot mount the ISO's
+# squashfs, so the live system never boots (tests/evidence/2026-11-21).
+mkinitcpio-archiso
 which
 less
 iproute2

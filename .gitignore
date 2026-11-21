@@ -36,3 +36,14 @@ keys/
 *.swp
 .idea/
 .vscode/
+
+# Python
+__pycache__/
+*.pyc
+
+# Evidence / test artifacts
+tests/evidence/
+
+# Tooling dirs
+.cloud-attachments/
+.freebuff/

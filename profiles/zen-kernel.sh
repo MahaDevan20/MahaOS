@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Optional Zen kernel. `linux` stays the default; `linux-lts` stays the fallback.
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 install_profile "zen kernel (keeps linux and linux-lts installed)" \

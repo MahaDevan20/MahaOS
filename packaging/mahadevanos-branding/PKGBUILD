@@ -34,7 +34,6 @@ package() {
     "$pkgdir/boot/grub/themes/mahadevanos/theme.txt"
   install -m644 "$srcdir/branding/grub/background.png" \
     "$pkgdir/boot/grub/themes/mahadevanos/background.png"
-  install -Dm644 "$srcdir/configs/grub/grub-defaults" "$pkgdir/etc/default/grub"
 
   # Plymouth theme (enabled in M4; harmless while disabled)
   install -d "$pkgdir/usr/share/plymouth/themes/mahadevanos"
@@ -47,14 +46,25 @@ package() {
   install -m644 "$srcdir/branding/plymouth/logo.png" \
     "$pkgdir/usr/share/plymouth/themes/mahadevanos/logo.png"
 
-  # SDDM, firewall, os-release
+  # SDDM drop-in
   install -Dm644 "$srcdir/configs/sddm/10-mahadevanos.conf" \
     "$pkgdir/etc/sddm.conf.d/10-mahadevanos.conf"
-  install -Dm644 "$srcdir/configs/ufw/ufw.conf" "$pkgdir/etc/ufw/ufw.conf"
-  install -Dm644 "$srcdir/configs/ufw/default" "$pkgdir/etc/default/ufw"
-  install -Dm644 "$srcdir/iso/profile/airootfs/etc/os-release" \
-    "$pkgdir/usr/lib/os-release"
-  ln -s ../usr/lib/os-release "$pkgdir/etc/os-release"
+
+  # System defaults whose final paths belong to other packages: /etc/default/grub
+  # is owned by grub, /etc/ufw/* and /etc/default/ufw by ufw, and
+  # /usr/lib/os-release and /etc/os-release by filesystem. Installing them here
+  # would be a pacman file conflict, so they are staged and applied later by
+  #   iso/profile/airootfs/root/customize_airootfs.sh   (live ISO)
+  #   installer/postinstall/15-branding.sh              (installed system)
+  install -d "$pkgdir/usr/share/mahadevanos/defaults"
+  install -m644 "$srcdir/configs/grub/grub-defaults" \
+    "$pkgdir/usr/share/mahadevanos/defaults/grub-defaults"
+  install -m644 "$srcdir/configs/ufw/ufw.conf" \
+    "$pkgdir/usr/share/mahadevanos/defaults/ufw.conf"
+  install -m644 "$srcdir/configs/ufw/default" \
+    "$pkgdir/usr/share/mahadevanos/defaults/default-ufw"
+  install -m644 "$srcdir/branding/os-release" \
+    "$pkgdir/usr/share/mahadevanos/defaults/os-release"
 
   install -Dm644 /dev/stdin "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'EOF'
 MIT License — Copyright (c) 2026 MahaDevan. See the repository LICENSE file.

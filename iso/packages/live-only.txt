@@ -5,3 +5,11 @@ calamares-config
 ckbcomp
 hwinfo
 ntfs-3g
+# Calamares' unpackfs module runs `unsquashfs` to copy the live squashfs onto the
+# disk. Without squashfs-tools the install dies at unpackfs with
+# "Failed to find unsquashfs, make sure you have the squashfs-tools package
+# installed" (it is also a dependency of calamares-config).
+squashfs-tools
+# unpackfs uses rsync for non-squashfs sources and Calamares' module scripts
+# expect it; keep it present so no code path can fail on a missing binary.
+rsync

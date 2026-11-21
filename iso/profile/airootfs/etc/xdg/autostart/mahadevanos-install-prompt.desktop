@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=MahaDevan's OS — install prompt
-Comment=Reminds the user that the installer is available on the desktop
-Exec=sh -c "sleep 5; command -v notify-send >/dev/null && notify-send -a 'MahaDevan OS' 'Welcome' 'Click \"Install MahaDevan\\'s OS\" on the desktop to install. Nothing is downloaded.'"
-Terminal=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true

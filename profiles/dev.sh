@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Development profile: containers, languages, editors, CLI tooling.
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 install_profile "development (docker, podman, compilers, CLIs)" \

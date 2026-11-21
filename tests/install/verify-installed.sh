@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Runs as the ordinary installed user (tester, not root) on the installed disk.
+# Everything here must work without privileges, which is itself part of the test:
+# no passwordless sudo may exist.
+set -uo pipefail
+
+rc=0
+fail() { echo "FAIL $*"; rc=1; }
+ok()   { echo "ok: $*"; }
+
+echo "--- identity"
+id
+id liveuser >/dev/null 2>&1 && fail "liveuser exists on the installed system" || ok "no liveuser"
+[ "$(grep -c '^liveuser:' /etc/passwd)" = 0 ] && ok "no liveuser passwd entry" || fail "liveuser in /etc/passwd"
+[ ! -e /home/liveuser ] && ok "no /home/liveuser" || fail "/home/liveuser exists"
+
+echo "--- installer removed"
+[ ! -e /usr/bin/calamares ] && ok "calamares binary absent" || fail "calamares binary present"
+[ ! -e /usr/local/bin/mahadevanos-installer ] && ok "installer wrapper absent" || fail "installer wrapper present"
+[ ! -e /etc/calamares ] && ok "/etc/calamares absent" || fail "/etc/calamares present"
+pacman -Q calamares >/dev/null 2>&1 && fail "calamares package installed" || ok "calamares package not installed"
+
+echo "--- no autologin, no passwordless sudo"
+cat /etc/sddm.conf.d/*.conf 2>/dev/null
+grep -rqsE '^[^#]*NOPASSWD' /etc/sudoers /etc/sudoers.d 2>/dev/null && fail "NOPASSWD rule present" || ok "no NOPASSWD rule"
+if sudo -n true 2>/dev/null; then fail "sudo works without a password"; else ok "sudo requires a password"; fi
+
+echo "--- desktop config"
+[ -f /etc/xdg/hypr/hyprland.lua ] && ok "/etc/xdg/hypr/hyprland.lua present" || fail "hyprland.lua missing"
+[ -f "$HOME/.config/hypr/hyprland.lua" ] && ok "user hyprland.lua from skel present" || fail "user hyprland.lua missing"
+grep -rqsE 'mahadevanos-installer|calamares' /etc/skel /etc/xdg/hypr "$HOME/.config" 2>/dev/null \
+  && fail "a desktop config still references the installer" || ok "no installer reference in desktop config"
+
+echo "--- no live-only unit"
+ls /etc/systemd/system/mahadevanos-liveuser.service 2>/dev/null && fail "live-only unit present" || ok "no live-only unit"
+[ ! -e /etc/mahadevanos-live ] && ok "no live-session marker" || fail "/etc/mahadevanos-live present"
+systemctl --failed --no-legend --no-pager | grep -q mahadevanos && fail "a mahadevanos unit failed" || ok "no failed mahadevanos unit"
+
+ echo "--- kernel and initramfs on disk"
+ls -l /boot/vmlinuz-* /boot/initramfs-*.img 2>/dev/null || fail "kernel or initramfs missing in /boot"
+
+# No live-only leftovers from the installer, either.
+[ ! -e /usr/lib/mahadevanos ] && ok "no /usr/lib/mahadevanos kernel stash" || fail "kernel stash left behind"
+
+ echo "--- installed system identity and filesystems"
+grep -E '^(ID|PRETTY_NAME)=' /etc/os-release
+findmnt -no FSTYPE,OPTIONS / | head -1
+findmnt -no FSTYPE /boot/efi
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS | grep -E 'vda|NAME'
+
+# The 2026-11-21 defect produced three partitions (two ESPs) and an unformatted
+# root. Exactly two partitions must exist, and they must be mounted.
+echo "--- disk layout: one ESP + one Btrfs root"
+mapfile -t parts < <(lsblk -ln -o NAME,TYPE /dev/vda | awk '$2 == "part" { print $1 }')
+if (( ${#parts[@]} == 2 )); then
+  ok "exactly 2 partitions on /dev/vda (${parts[*]})"
+else
+  fail "expected exactly 2 partitions on /dev/vda, found ${#parts[@]}: ${parts[*]:-none}"
+fi
+[ "$(lsblk -no FSTYPE /dev/vda1 2>/dev/null)" = "vfat" ] && ok "vda1 is vfat" || fail "vda1 is not vfat"
+[ "$(lsblk -no FSTYPE /dev/vda2 2>/dev/null)" = "btrfs" ] && ok "vda2 is btrfs" || fail "vda2 is not btrfs"
+[ "$(findmnt -no TARGET /dev/vda1 2>/dev/null)" = "/boot/efi" ] && ok "vda1 mounted at /boot/efi" || fail "vda1 not mounted at /boot/efi"
+case "$(findmnt -no SOURCE / 2>/dev/null)" in
+  /dev/vda2*) ok "root (/) is on vda2" ;;
+  *) fail "root (/) is not on vda2" ;;
+esac
+size_mib=$(($(lsblk -bno SIZE /dev/vda1 2>/dev/null || echo 0) / 1048576))
+if (( size_mib >= 1000 && size_mib <= 1040 )); then
+  ok "ESP is ${size_mib}MiB"
+else
+  fail "ESP is ${size_mib}MiB, expected 1024MiB"
+fi
+
+echo "--- services"
+systemctl is-enabled sddm.service 2>/dev/null
+systemctl --failed --no-legend --no-pager
+
+if (( rc )); then
+  echo "VERIFY RESULT: FAILED"
+else
+  echo "VERIFY RESULT: PASSED"
+fi
+exit $rc

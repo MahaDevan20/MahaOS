@@ -2,7 +2,9 @@
 Type=Application
 Name=Install MahaDevan's OS
 Comment=Install this system to disk (offline, Garuda-style)
-Exec=pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY QT_QPA_PLATFORMTHEME= calamares
+# The wrapper runs Calamares as root on the live Wayland session, makes its
+# window fullscreen and opens a terminal with the log if it cannot start.
+Exec=/usr/local/bin/mahadevanos-installer
 Icon=calamares
 Terminal=false
 Categories=System;

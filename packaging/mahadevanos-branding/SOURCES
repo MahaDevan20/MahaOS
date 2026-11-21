@@ -12,4 +12,4 @@ configs/grub/grub-defaults
 configs/ufw/ufw.conf
 configs/ufw/default
 configs/sddm/10-mahadevanos.conf
-iso/profile/airootfs/etc/os-release
+branding/os-release

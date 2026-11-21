@@ -2,6 +2,7 @@
 # Gaming profile: Steam/Proton, Lutris, GameMode, MangoHud, Wine.
 # Requires [multilib] (enabled by the installer) for 32-bit libraries.
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 if ! grep -q '^\[multilib\]' /etc/pacman.conf; then

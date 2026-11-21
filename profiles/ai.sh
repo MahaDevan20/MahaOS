@@ -3,6 +3,7 @@
 # Model weights are NOT bundled anywhere: they are large and must be an explicit
 # user download (blueprint §6: never include model weights in the ISO).
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 echo "Ollama models are several GB each. This profile installs the runtime only."

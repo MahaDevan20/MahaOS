@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Live-session launcher for the Calamares installer.
+#
+# Started automatically by the live Hyprland config (hl.on("hyprland.start")),
+# and by SUPER + I or the desktop icon. Runs Calamares as root on the live
+# Wayland session and makes its window fullscreen. If Calamares is missing or
+# exits with an error, a terminal opens with the reason instead of leaving a
+# blank desktop.
+#
+# Live-only: /usr/local/bin/mahadevanos-installer is deleted from installed
+# systems by /usr/share/mahadevanos/postinstall/99-cleanup.sh, and that script
+# fails the install if it survives.
+set -euo pipefail
+
+LOG=/tmp/mahadevanos-installer.log
+# Must be writable by the live user: /run itself is root-owned, so the lock goes
+# into the session runtime directory.
+LOCK="${XDG_RUNTIME_DIR:-/tmp}/mahadevanos-installer.lock"
+
+# Calamares' Wayland app_id (and therefore its Hyprland window class).
+WINDOW_CLASS='^(io\.calamares\.calamares)$'
+
+fail_terminal() {
+    local message="$1"
+    exec kitty --title "MahaDevan's OS installer" \
+        bash -c 'printf "\n%s\n\n" "$1"; printf "Log: %s\n\n" "$2"; [ -s "$2" ] && tail -n 40 "$2"; printf "\nTerminal stays open. Close it, then press SUPER+I to retry the installer.\n"; exec bash -i' \
+        _ "$message" "$LOG"
+}
+
+focus_installer() {
+    hyprctl dispatch focuswindow "class:${WINDOW_CLASS}" >/dev/null 2>&1 || true
+}
+
+# fullscreen 1 = maximized: the installer keeps its title bar and can be moved,
+# but fills the workspace.
+maximize_installer() {
+    focus_installer
+    hyprctl dispatch fullscreen 1 >/dev/null 2>&1 || true
+}
+
+if ! command -v calamares >/dev/null 2>&1; then
+    fail_terminal "Calamares is not installed in this live image, so the installer cannot start."
+fi
+
+# One instance only. The autostart hook and a user press can fire at the same
+# time, and two Calamares processes would fight over the same install state.
+exec 9>"$LOCK"
+if ! flock -n 9; then
+    focus_installer
+    exit 0
+fi
+
+# Calamares runs as root but has to draw on liveuser's Wayland socket. sudo
+# already needs no password for liveuser (the live-only sudoers rule), and -E
+# keeps the session environment that root needs for the socket.
+export QT_QPA_PLATFORM=wayland
+export QT_QPA_PLATFORMTHEME=
+
+: >"$LOG"
+# The redirect is deliberately done by liveuser, not by root: the log stays
+# readable to the user who has to report a failure.
+# shellcheck disable=SC2024
+sudo -E env \
+    "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+    "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}" \
+    QT_QPA_PLATFORM=wayland \
+    QT_QPA_PLATFORMTHEME= \
+    calamares >>"$LOG" 2>&1 &
+calamares_pid=$!
+
+# Fullscreen once the window exists. Polled rather than forced from the Hyprland
+# config so it also works when Calamares is relaunched by hand.
+for _ in $(seq 1 120); do
+    if ! kill -0 "$calamares_pid" 2>/dev/null; then
+        break
+    fi
+    if hyprctl clients -j 2>/dev/null | grep -q 'io\.calamares\.calamares'; then
+        maximize_installer
+        break
+    fi
+    sleep 0.5
+done
+
+status=0
+wait "$calamares_pid" || status=$?
+
+# 0 = install finished (or the user quit normally). Anything else is a startup
+# or runtime failure the user has to see.
+if (( status != 0 )); then
+    fail_terminal "Calamares exited with status ${status}."
+fi

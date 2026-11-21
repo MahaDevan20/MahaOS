@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Virtualization profile: KVM/QEMU with libvirt and virt-manager.
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 install_profile "virtualization (QEMU/KVM, libvirt, virt-manager)" \

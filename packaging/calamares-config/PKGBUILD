@@ -8,7 +8,9 @@ pkgdesc="Calamares offline installer configuration for MahaDevan's OS"
 arch=('any')
 url="https://github.com/mahadevan"
 license=('MIT')
-depends=('calamares')
+# unpackfs shells out to unsquashfs; without squashfs-tools the install fails at
+# unpackfs with "Failed to find unsquashfs".
+depends=('calamares' 'squashfs-tools')
 source=("${pkgname}-assets.tar.zst")
 sha256sums=('SKIP')
 
@@ -26,6 +28,12 @@ package() {
   install -d "$pkgdir/usr/share/calamares/branding/mahadevanos"
   install -m644 "$srcdir/installer/calamares/branding/mahadevanos/"* \
     "$pkgdir/usr/share/calamares/branding/mahadevanos/"
+
+  # Pre-unpackfs guard, run from the live system by the `preflight`
+  # shellprocess instance (dontChroot: true).
+  install -d "$pkgdir/usr/share/mahadevanos/calamares"
+  install -m755 "$srcdir/installer/calamares/check-root-mount.sh" \
+    "$pkgdir/usr/share/mahadevanos/calamares/"
 
   install -d "$pkgdir/usr/share/mahadevanos/postinstall"
   install -m755 "$srcdir/installer/postinstall/"*.sh \

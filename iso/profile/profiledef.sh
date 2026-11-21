@@ -25,4 +25,7 @@ file_permissions=(
   ["/etc/sudoers.d/10-liveuser"]="0:0:440"
   ["/root"]="0:0:750"
   ["/usr/local/bin"]="0:0:755"
+  ["/usr/local/bin/mahadevanos-installer"]="0:0:755"
+  # Live autostart of the installer lives in liveuser's own Hyprland config.
+  ["/home/liveuser/.config/hypr/hyprland.lua"]="1000:1000:644"
 )

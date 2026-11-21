@@ -1,0 +1,6 @@
+# ShellCheck configuration for MahaDevan's OS.
+# Scripts source their helper library with `$(dirname "$0")/lib.sh`, which
+# ShellCheck cannot resolve statically; SCRIPTDIR tells it to look next to the
+# sourcing script (profiles/*.sh -> profiles/lib.sh, scripts/*.sh -> scripts/lib.sh).
+source-path=SCRIPTDIR
+external-sources=true

@@ -13,7 +13,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-require pacman sudo sha256sum awk
+require pacman sudo sha256sum awk bsdtar
 command -v mkarchiso >/dev/null 2>&1 || die "mkarchiso missing: pacman -S archiso"
 
 [[ $EUID -ne 0 ]] || die "run as your normal user; the script calls sudo mkarchiso itself"
@@ -24,11 +24,13 @@ BUILD_LOG="$OUT_DIR/build.log"
 
 pinned="$(pinned_date)"
 label="$(iso_label)"
-iso_version="$(date +%Y.%m.%d)"
-iso_file="$OUT_DIR/mahadevanos-${ISO_DATE}-x86_64.iso"
 
-export ARCHISO_PINNED_DATE="$pinned"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
+
+# mkarchiso names the image after iso_version in profiledef.sh (%Y.%m.%d), so the
+# expected filename has to use the same format, not the ISO_DATE compact form.
+iso_version="$(date --date="@${SOURCE_DATE_EPOCH}" +%Y.%m.%d)"
+iso_file="$OUT_DIR/mahadevanos-${iso_version}-x86_64.iso"
 
 log "pinned Arch Linux Archive date: $pinned"
 log "ISO label: $label"
@@ -42,20 +44,39 @@ rm -rf "$WORK_PROFILE"
 mkdir -p "$BUILD_DIR"
 cp -a "$PROFILE_SRC" "$WORK_PROFILE"
 
-# Rewrite the local repo server path so the build works from any checkout.
+# Rewrite the local repo server path so the build works from any checkout, and
+# substitute the archive date: pacman expands only $repo and $arch, so a pinned
+# date has to be written into the file itself.
 repo_abs="$REPO_DIR"
 sed -i "s|^Server = file://.*|Server = file://${repo_abs}/\$arch|" "$WORK_PROFILE/pacman.conf"
+sed -i "s|@PINNED_DATE@|${pinned}|g" "$WORK_PROFILE/pacman.conf"
 grep -q "file://${repo_abs}/" "$WORK_PROFILE/pacman.conf" ||
   die "failed to rewrite the local repo server in the working pacman.conf"
+if grep -q '@PINNED_DATE@' "$WORK_PROFILE/pacman.conf"; then
+  die "unresolved @PINNED_DATE@ placeholder remains in the working pacman.conf"
+fi
 
-# Resolve the ISO label placeholders in the boot entries.
-find "$WORK_PROFILE" -type f \( -name '*.conf' -path '*/entries/*' \) -print0 |
+# Resolve the ISO label placeholders everywhere in the working copy, not only in
+# the boot entries: loader.conf mentions the placeholder in a comment, and the
+# check below must not trip over a file that was never rewritten.
+grep -rlZ --binary-files=without-match '@ISO_LABEL@' "$WORK_PROFILE" 2>/dev/null |
   xargs -0 -r sed -i "s|@ISO_LABEL@|${label}|g"
 if grep -rqs '@ISO_LABEL@' "$WORK_PROFILE"; then
   die "unresolved @ISO_LABEL@ placeholder remains in the working profile"
 fi
 
 # --- 3. Build --------------------------------------------------------------
+# Start from scratch: a failed run leaves a half-populated work directory that
+# mkarchiso would otherwise resume from. Package archives stay cached on the host.
+# mkarchiso creates it as root, so it can only be removed with sudo; the path is
+# checked first so this can never delete anything else.
+[[ "$WORK_DIR" == "$BUILD_DIR/work" && "$BUILD_DIR" == "$PROJECT_ROOT/build" ]] ||
+  die "refusing to remove unexpected work directory: $WORK_DIR"
+if [[ -d "$WORK_DIR" ]]; then
+  log "clearing previous work directory $WORK_DIR"
+  sudo rm -rf -- "$WORK_DIR" || die "could not clear $WORK_DIR"
+fi
+
 log "starting mkarchiso (log: $BUILD_LOG)"
 set +e
 sudo mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$WORK_PROFILE" 2>&1 | tee "$BUILD_LOG"
@@ -70,39 +91,60 @@ log "generating package manifest"
 manifest="$iso_file.manifest.txt"
 airootfs="$WORK_DIR/x86_64/airootfs"
 
-origins_ok=0
-if [[ -d "$airootfs/var/lib/pacman" ]]; then
-  mapfile -t installed < <(pacman -Q --root "$airootfs" 2>/dev/null || true)
-  : >"$manifest"
-  echo "# <repo>/<package> <version> — generated from the built airootfs" >>"$manifest"
-  for db in core extra multilib mahadevanos-local; do
-    while read -r repo pkg ver _; do
-      for entry in "${installed[@]}"; do
-        if [[ "$entry" == "$pkg $ver" ]]; then
-          printf '%s/%s %s\n' "$repo" "$pkg" "$ver" >>"$manifest"
-          break
-        fi
-      done
-    done < <(pacman -Sl --root "$airootfs" "$db" 2>/dev/null || true)
+[[ -d "$airootfs/var/lib/pacman/local" ]] ||
+  die "no pacman database in the built airootfs ($airootfs/var/lib/pacman/local)"
+
+mapfile -t installed < <(pacman -Q --root "$airootfs" 2>/dev/null | awk 'NF >= 2 { print $1, $2 }')
+(( ${#installed[@]} )) || die "the built airootfs reports no installed packages"
+
+# The image carries no sync databases (pacman removes them during install), so an
+# origin cannot be read from inside the airootfs. It is resolved from the
+# databases the build used instead: a package name lives in exactly one of
+# core/extra/multilib, and our own packages come from repo/x86_64.
+declare -A origin=()
+for db in core extra multilib; do
+  while read -r repo name _; do
+    [[ -n "${name:-}" ]] || continue
+    [[ "$repo" == "$db" ]] || continue
+    origin["$name"]="$repo"
+  done < <(pacman -Sl "$db" 2>/dev/null || true)
+done
+
+for pkgfile in "$REPO_DIR"/x86_64/*.pkg.tar.zst; do
+  [[ -e "$pkgfile" ]] || continue
+  case "$(basename "$pkgfile")" in *-debug-*) continue ;; esac
+  name="$(bsdtar -xOf "$pkgfile" .PKGINFO 2>/dev/null | sed -n 's/^pkgname = //p' | head -1 || true)"
+  [[ -n "$name" ]] || continue
+  origin["$name"]="mahadevanos-local"
+done
+
+unresolved=()
+{
+  echo "# <repo>/<package> <version> — generated from the built airootfs"
+  for entry in "${installed[@]}"; do
+    name="${entry%% *}"
+    ver="${entry#* }"
+    if [[ -n "${origin[$name]:-}" ]]; then
+      printf '%s/%s %s\n' "${origin[$name]}" "$name" "$ver"
+    else
+      unresolved+=("$name")
+    fi
   done
-  # Keep the manifest in a stable order.
-  { head -1 "$manifest"; tail -n +2 "$manifest" | sort -u; } >"$manifest.tmp"
-  mv "$manifest.tmp" "$manifest"
-  if grep -qv '^#' "$manifest"; then
-    origins_ok=1
-  fi
+} >"$manifest.unsorted"
+
+# Keep the manifest in a stable order.
+{ head -1 "$manifest.unsorted"; tail -n +2 "$manifest.unsorted" | sort -u; } >"$manifest"
+rm -f "$manifest.unsorted"
+
+if (( ${#unresolved[@]} )); then
+  die "these installed packages belong to no known repository (core/extra/multilib/mahadevanos-local):
+     ${unresolved[*]}
+     Set MAHADEVANOS_SKIP_ORIGIN_CHECK=1 only after verifying them by hand."
 fi
 
-if (( origins_ok == 1 )); then
-  log "checking package origins"
-  "$PROJECT_ROOT/iso/checks/check-repo-origins.sh" "$manifest"
-elif [[ "${MAHADEVANOS_SKIP_ORIGIN_CHECK:-0}" == "1" ]]; then
-  warn "package origins could not be resolved; origin check SKIPPED by request"
-  pacman -Q --root "$airootfs" >"$manifest" 2>/dev/null || true
-else
-  die "could not resolve package origins from $airootfs; refusing to call this build good.
-     Set MAHADEVANOS_SKIP_ORIGIN_CHECK=1 only if you have verified the manifest by hand."
-fi
+log "all ${#installed[@]} installed packages resolved to a known repository"
+log "checking package origins"
+"$PROJECT_ROOT/iso/checks/check-repo-origins.sh" "$manifest"
 
 # --- 5. Checksum -----------------------------------------------------------
 log "writing checksum"

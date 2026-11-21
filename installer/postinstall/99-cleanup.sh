@@ -18,10 +18,21 @@ rm -f /home/liveuser/README.live
 # 2. Live autologin and the live SDDM drop-in.
 rm -f /etc/sddm.conf.d/10-live-autologin.conf
 
-# 3. Live shell leftovers.
+# 3. Live shell leftovers, including the live-only Hyprland config that
+#    auto-starts the installer and the installer launcher itself.
 rm -rf /root/.cache/hyprland /home/*/.cache/hyprland 2>/dev/null || true
 rm -f /etc/xdg/autostart/*calamares*.desktop
+rm -f /etc/xdg/autostart/mahadevanos-install-prompt.desktop
 rm -f /usr/share/applications/install-mahadevanos.desktop
+rm -f /usr/local/bin/mahadevanos-installer
+rm -rf /home/liveuser
+
+# 3b. The live-only systemd unit that gives liveuser its groups, its enablement
+#     symlink, and the live-session marker it keys on. All three are copied into
+#     the target by unpackfs and otherwise run (and fail) on first boot.
+rm -f /etc/systemd/system/mahadevanos-liveuser.service
+rm -f /etc/systemd/system/multi-user.target.wants/mahadevanos-liveuser.service
+rm -f /etc/mahadevanos-live
 
 # 4. archiso leftovers.
 rm -rf /etc/calamares
@@ -36,16 +47,81 @@ for pkg in calamares-config calamares ckbcomp; do
     pacman -Rs --noconfirm "$pkg" 2>/dev/null || pacman -Rdd --noconfirm "$pkg" 2>/dev/null || true
   fi
 done
-rm -rf /usr/share/mahadevanos
+# /usr/lib/mahadevanos/kernel holds the live copy of the kernel images, which
+# 10-mkinitcpio.sh has already restored into /boot by now.
+rm -rf /usr/share/mahadevanos /usr/lib/mahadevanos
 
-# 6. Sanity guard: refuse to leave a passwordless-sudo live user behind.
-if grep -rqs '^liveuser' /etc/passwd; then
-  echo "ERROR: liveuser still present after cleanup" >&2
+# 6. Sanity guard: every live-only item must be gone, or the install fails.
+failed=0
+check_absent() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    echo "ERROR: $path still present after cleanup" >&2
+    failed=1
+  fi
+}
+
+echo ":: [mahadevanos] verifying the target has no live-only artefacts"
+
+# Live user: no passwd entry, no home directory.
+if grep -q '^liveuser:' /etc/passwd 2>/dev/null; then
+  echo "ERROR: liveuser still present in /etc/passwd after cleanup" >&2
+  failed=1
+fi
+check_absent /home/liveuser
+check_absent /etc/sudoers.d/10-liveuser
+check_absent /etc/systemd/system/mahadevanos-liveuser.service
+check_absent /etc/systemd/system/multi-user.target.wants/mahadevanos-liveuser.service
+check_absent /etc/mahadevanos-live
+if systemctl list-unit-files 'mahadevanos*' 2>/dev/null | grep -q mahadevanos; then
+  echo "ERROR: a MahaDevan's OS live unit is still installed" >&2
+  systemctl list-unit-files 'mahadevanos*' >&2 || true
+  failed=1
+fi
+
+# No passwordless sudo rule for anything, live or not.
+if grep -rqsE '^[^#]*NOPASSWD' /etc/sudoers /etc/sudoers.d 2>/dev/null; then
+  echo "ERROR: a NOPASSWD sudo rule still exists after cleanup" >&2
+  grep -rnE '^[^#]*NOPASSWD' /etc/sudoers /etc/sudoers.d 2>/dev/null >&2 || true
+  failed=1
+fi
+
+# No autologin for any display manager.
+if grep -rqsE '^\s*AutoLogin|^\s*User\s*=' /etc/sddm.conf /etc/sddm.conf.d 2>/dev/null; then
+  echo "ERROR: SDDM still has an autologin user configured" >&2
+  grep -rnE '^\s*AutoLogin|^\s*User\s*=' /etc/sddm.conf /etc/sddm.conf.d 2>/dev/null >&2 || true
+  failed=1
+fi
+check_absent /etc/sddm.conf.d/10-live-autologin.conf
+
+# No installer: no binary, no launcher, no desktop entry, no Calamares config.
+check_absent /usr/bin/calamares
+check_absent /usr/local/bin/mahadevanos-installer
+check_absent /etc/calamares
+check_absent /usr/share/applications/install-mahadevanos.desktop
+if compgen -G '/etc/xdg/autostart/*calamares*' >/dev/null; then
+  echo "ERROR: a Calamares autostart entry still exists after cleanup" >&2
+  failed=1
+fi
+
+# No live Hyprland config: neither the liveuser copy nor anything that starts
+# the installer from /etc/skel or /etc/xdg.
+check_absent /home/liveuser/.config/hypr/hyprland.lua
+if grep -rqsE 'mahadevanos-installer|calamares' /etc/skel /etc/xdg/hypr 2>/dev/null; then
+  echo "ERROR: a Hyprland/skel config still references the installer" >&2
+  grep -rlnE 'mahadevanos-installer|calamares' /etc/skel /etc/xdg/hypr 2>/dev/null >&2 || true
+  failed=1
+fi
+
+# The installed system keeps the normal (non-live) Hyprland Lua config.
+if [[ ! -f /etc/xdg/hypr/hyprland.lua ]]; then
+  echo "ERROR: /etc/xdg/hypr/hyprland.lua is missing from the installed system" >&2
+  failed=1
+fi
+
+if (( failed )); then
+  echo "ERROR: live-only artefacts survived the cleanup; aborting the install" >&2
   exit 1
 fi
-if [[ -e /etc/sudoers.d/10-liveuser ]]; then
-  echo "ERROR: live sudoers rule still present after cleanup" >&2
-  exit 1
-fi
 
-echo ":: [mahadevanos] cleanup complete"
+echo ":: [mahadevanos] cleanup complete, no live-only artefacts remain"

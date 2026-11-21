@@ -6,6 +6,23 @@ set -euo pipefail
 
 export LC_ALL=C
 
+# The live squashfs has an empty /boot (mkarchiso deletes it before building the
+# image), so the unpacked target has kernel modules but no kernel images. Restore
+# them from the copy the live system keeps in /usr/lib/mahadevanos/kernel.
+echo ":: [mahadevanos] restoring kernel images"
+for kernel in linux linux-lts; do
+  if [[ -s "/boot/vmlinuz-$kernel" ]]; then
+    continue
+  fi
+  if [[ -s "/usr/lib/mahadevanos/kernel/vmlinuz-$kernel" ]]; then
+    install -Dm644 "/usr/lib/mahadevanos/kernel/vmlinuz-$kernel" "/boot/vmlinuz-$kernel"
+    echo ":: [mahadevanos] restored /boot/vmlinuz-$kernel"
+  else
+    echo ":: [mahadevanos] ERROR: /boot/vmlinuz-$kernel is missing and no copy exists" >&2
+    exit 1
+  fi
+done
+
 echo ":: [mahadevanos] restoring /etc/mkinitcpio.conf"
 cat >/etc/mkinitcpio.conf <<'EOF'
 # Generated for the installed system by MahaDevan's OS post-install.

@@ -1,12 +1,15 @@
 # Keybindings
 
-Source of truth: `configs/hypr/conf.d/30-keybinds.conf`. `SUPER` is the Windows key.
+Source of truth: `configs/hypr/hyprland.lua` (Hyprland 0.57 reads the Lua
+config; a `hyprland.conf` is ignored). `SUPER` is the Windows key.
 
 ## Applications
 
 | Key | Action |
 |---|---|
 | `SUPER + Return` | kitty terminal |
+| `SUPER + Q` | kitty terminal (live ISO; `SUPER + C` closes a window) |
+| `SUPER + I` | start or re-focus the installer (live ISO only) |
 | `SUPER + D` | wofi launcher |
 | `SUPER + E` | dolphin |
 | `SUPER + L` | lock (hyprlock) |
@@ -18,7 +21,7 @@ Source of truth: `configs/hypr/conf.d/30-keybinds.conf`. `SUPER` is the Windows 
 
 | Key | Action |
 |---|---|
-| `SUPER + Q` | close window |
+| `SUPER + C` | close window |
 | `SUPER + SHIFT + Q` | exit Hyprland |
 | `SUPER + F` | fullscreen |
 | `SUPER + Space` | toggle floating |

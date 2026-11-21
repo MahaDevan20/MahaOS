@@ -20,13 +20,18 @@ Honest labels only: `TESTED`, `IMPLEMENTED (untested)`, `EXPERIMENTAL`, `PLANNED
 | Milestone | Scope | Status |
 |---|---|---|
 | M0 | Host check and repository scaffold | `TESTED` for the scaffold; host is missing `archiso`, `devtools`, `shellcheck`, `squashfs-tools` (see `documentation/development/host-check.md`) |
-| M1 | Bootable minimal live ISO | `IMPLEMENTED (untested)` — build blocked on the missing host packages |
-| M2 | Calamares offline installer + minimal desktop | `IMPLEMENTED (untested)` — `calamares`/`ckbcomp` must be built into `repo/` first |
+| M1 | Bootable minimal live ISO | `TESTED` — `out/mahadevanos-2026.11.21-x86_64.iso` boots under UEFI QEMU (OVMF, 4 GiB) to SDDM → Hyprland as `liveuser`, and the **safe graphics** entry boots too; evidence in `tests/evidence/2026-11-21/` |
+| M2 | Calamares offline installer + minimal desktop | `TESTED` for live autostart, the offline install pipeline (one 1024 MiB ESP + one Btrfs root, `@`/`@home`/`@log`/`@cache`/`@snapshots`, pre-unpackfs root-mount guard) and the installed-system boot (`scripts/test-boot.sh --disk`, `scripts/test-install-auto.sh`); the hand-clicked Calamares GUI walkthrough is still `IMPLEMENTED (untested)` |
 | M3 | Btrfs snapshots and recovery | `IMPLEMENTED (untested)` |
 | M4 | Desktop experience and branding | `PLANNED` (Hyprland config stub only) |
 | M5 | Hardware detection, profiles, optional LUKS | `EXPERIMENTAL` (`profiles/`, `installer/postinstall/60-hardware-detect.sh`) |
 
-No ISO has been built yet in this checkout. Nothing here claims to boot.
+An ISO is built at `out/mahadevanos-2026.11.21-x86_64.iso` (2.6 GiB, 718 packages, pinned 2026/11/01).
+The claim that it boots is backed by `tests/evidence/2026-11-21/` (serial logs, probe output,
+framebuffer screenshots for the default and safe-graphics entries). The install pipeline and
+the boot of the installed disk are backed by `tests/evidence/2026-11-21/install-rehearsal.*`
+and `installed-boot.*`; that harness mirrors the Calamares modules rather than clicking through
+the GUI, so the hand-clicked Calamares walkthrough itself is still untested.
 
 ---
 
