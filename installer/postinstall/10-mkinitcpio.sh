@@ -6,21 +6,64 @@ set -euo pipefail
 
 export LC_ALL=C
 
+# GRUB 2.16 cannot reliably read a zstd-compressed file off btrfs: the
+# 2026-11-22 install failed with
+#   error: loader/efi/linux.c:grub_cmd_linux:700:premature end of file
+#   /@/boot/vmlinuz-linux-lts
+# even though the file was complete on disk. btrfs compresses /boot because it
+# inherits `compress=zstd:1` from the root subvolume, and GRUB's btrfs driver
+# returns a short read for some compressed extent layouts (the same class of
+# failure as the documented amd-ucode.img "premature end of file" reports).
+# `chattr +C` (NOCOW, which also disables compression) on /boot makes every file
+# written below it uncompressed, i.e. a plain extent map GRUB reads byte for byte.
+# It must be set *before* the kernels and initramfs are written.
+echo ":: [mahadevanos] disabling btrfs compression on /boot (GRUB cannot read zstd-compressed kernels)"
+boot_fs="$(findmnt -no FSTYPE -T /boot 2>/dev/null || true)"
+[[ -n "$boot_fs" ]] || boot_fs="$(findmnt -no FSTYPE -T / 2>/dev/null || echo unknown)"
+if [[ "$boot_fs" == "btrfs" ]]; then
+  chattr +C /boot 2>/dev/null || echo ":: [mahadevanos] WARNING: chattr +C /boot failed; GRUB may not read the kernel" >&2
+else
+  echo ":: [mahadevanos] /boot is on ${boot_fs}; no btrfs compression to disable"
+fi
+
 # The live squashfs has an empty /boot (mkarchiso deletes it before building the
-# image), so the unpacked target has kernel modules but no kernel images. Restore
-# them from the copy the live system keeps in /usr/lib/mahadevanos/kernel.
+# image), so the unpacked target has kernel modules but no kernel images.
+#
+# Authoritative source is the kernel package itself: both linux and linux-lts
+# install /usr/lib/modules/<kver>/vmlinuz, which mkarchiso keeps. The copy that
+# customize_airootfs.sh stashes in /usr/lib/mahadevanos/kernel is only a
+# fallback, so a missing stash can no longer leave an empty /boot behind.
+kernel_source() {
+  local kernel="$1" path
+  path="$(pacman -Ql "$kernel" 2>/dev/null | awk '$2 ~ /^\/usr\/lib\/modules\/.*\/vmlinuz$/ { print $2; exit }')"
+  if [[ -n "$path" && -s "$path" ]]; then
+    printf '%s\n' "$path"
+    return 0
+  fi
+  path="/usr/lib/mahadevanos/kernel/vmlinuz-$kernel"
+  if [[ -s "$path" ]]; then
+    printf '%s\n' "$path"
+    return 0
+  fi
+  return 1
+}
+
 echo ":: [mahadevanos] restoring kernel images"
 for kernel in linux linux-lts; do
-  if [[ -s "/boot/vmlinuz-$kernel" ]]; then
-    continue
-  fi
-  if [[ -s "/usr/lib/mahadevanos/kernel/vmlinuz-$kernel" ]]; then
-    install -Dm644 "/usr/lib/mahadevanos/kernel/vmlinuz-$kernel" "/boot/vmlinuz-$kernel"
-    echo ":: [mahadevanos] restored /boot/vmlinuz-$kernel"
-  else
-    echo ":: [mahadevanos] ERROR: /boot/vmlinuz-$kernel is missing and no copy exists" >&2
+  # Remove any copy written before compression was disabled, then copy again so
+  # the file on disk is definitely uncompressed.
+  rm -f "/boot/vmlinuz-$kernel"
+  if ! src="$(kernel_source "$kernel")"; then
+    echo ":: [mahadevanos] ERROR: no vmlinuz for $kernel (checked /usr/lib/modules/*/vmlinuz and the live stash)" >&2
     exit 1
   fi
+  install -Dm644 "$src" "/boot/vmlinuz-$kernel"
+  size="$(stat -c %s "/boot/vmlinuz-$kernel")"
+  if (( size < 5242880 )); then
+    echo ":: [mahadevanos] ERROR: /boot/vmlinuz-$kernel is only ${size} bytes (source $src)" >&2
+    exit 1
+  fi
+  echo ":: [mahadevanos] /boot/vmlinuz-$kernel ${size} bytes from $src"
 done
 
 echo ":: [mahadevanos] restoring /etc/mkinitcpio.conf"

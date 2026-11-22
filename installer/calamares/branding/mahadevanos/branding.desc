@@ -20,6 +20,14 @@ strings:
     welcomeStyleCalamares: true
     welcomeExpandingLogo: false
 
+    # Start maximized. Calamares 3.4.2 reads `windowExpanding` (normal,
+    # fullscreen, noexpand) and `windowSize` from this section
+    # (libcalamaresui/Branding.cpp initSimpleSettings). A small default window
+    # is what hid the "Erase disk" radio button on the partition page.
+    windowExpanding: fullscreen
+    windowSize: "100%,100%"
+    windowPlacement: center
+
     # Summary page.
     supportUrl: "https://github.com/mahadevan"
 

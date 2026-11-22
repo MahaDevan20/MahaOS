@@ -42,6 +42,19 @@ if ! command -v calamares >/dev/null 2>&1; then
     fail_terminal "Calamares is not installed in this live image, so the installer cannot start."
 fi
 
+# A previous Calamares run that failed during exec leaves its target mounts under
+# /tmp/calamares-root-*. While an ESP or a root partition of the target disk is
+# still mounted, Calamares hides the "Erase disk" choice on the partition page
+# (ChoicePage::setupActions suppresses erase when any partition is mounted) and
+# only "Manual partitioning" is offered. Release only Calamares' own mounts.
+released=0
+while IFS= read -r target; do
+    [[ -n "$target" ]] || continue
+    if sudo umount -R "$target" 2>/dev/null || sudo umount -lR "$target" 2>/dev/null; then
+        released=$((released + 1))
+    fi
+done < <(findmnt -rn -o TARGET | grep -E '^/tmp/calamares-root-[^/]+$' || true)
+
 # One instance only. The autostart hook and a user press can fire at the same
 # time, and two Calamares processes would fight over the same install state.
 exec 9>"$LOCK"
@@ -57,6 +70,9 @@ export QT_QPA_PLATFORM=wayland
 export QT_QPA_PLATFORMTHEME=
 
 : >"$LOG"
+if (( released )); then
+    printf 'released %s stale Calamares target mount(s) so "Erase disk" is offered\n' "$released" >>"$LOG"
+fi
 # The redirect is deliberately done by liveuser, not by root: the log stays
 # readable to the user who has to report a failure.
 # shellcheck disable=SC2024

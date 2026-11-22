@@ -22,6 +22,30 @@ All notable changes to MahaDevan's OS. Format loosely follows Keep a Changelog.
 - Documentation: host check, build, architecture, manual install test, snapshot
   recovery, known issues.
 
+### Fixed (2026-11-22, first hand-clicked install findings)
+- `displaymanager.conf`: `services:` is not a Calamares 3.4.2 key; replaced with
+  `displaymanagers: [sddm]` and `basicSetup: false`. This was the 75% install
+  failure (“No display managers selected for the displaymanager module”).
+- Installed `/boot` is zstd-compressed btrfs, which GRUB cannot read reliably
+  (“premature end of file /@/boot/vmlinuz-linux-lts”). `/boot` is now marked
+  NOCOW/no-compression before the kernels are written, kernels are restored from
+  `/usr/lib/modules/<kver>/vmlinuz`, and a kernel under 5 MiB fails the install.
+- `linux` is the default GRUB entry (`GRUB_TOP_LEVEL`), `linux-lts` stays as the
+  fallback.
+- The `finished` module is in the show sequence (`finished.conf`), so the install
+  ends with a working restart button instead of a stuck 100% page.
+- `initialPartitioningChoice: erase`, a maximized installer window
+  (`windowExpanding: fullscreen`) and removal of stale
+  `/tmp/calamares-root-*` mounts so “Erase disk” is offered and preselected.
+- Module configs corrected against the 3.4.2 schemas: `fstab.conf`
+  (`tmpOptions`), `grubcfg.conf` (`kernel_params`), `users.conf` (`user.shell`),
+  `welcome.conf` (`requirements`), plus explicit `mandatory:` on every
+  `services-systemd` unit.
+- Tests: `tests/install/rehearsal.sh` audits every module config against the
+  Calamares 3.4.2 schema and runs the full exec sequence; the installed-disk test
+  boots both kernels, asserts kernel sizes above 5 MiB and checks that GRUB reads
+  them byte-identically.
+
 ### Known limitations
 - The ISO has not been built in this checkout: the host lacks `archiso`, `devtools`,
   `shellcheck` and `squashfs-tools`.

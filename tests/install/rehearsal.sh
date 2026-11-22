@@ -82,6 +82,108 @@ unp=$(awk '/^  - exec:/{f=1;next} f&&/^[^[:space:]]/{f=0} \
 echo "exec order: preflight=$pre unpackfs=$unp"
 [[ -n "$pre" && -n "$unp" && "$pre" -lt "$unp" ]] || { echo "FAIL: preflight must run before unpackfs in settings.conf"; exit 1; }
 
+step "module configuration audit against Calamares 3.4.2"
+# Every name below is a top-level key of src/modules/<module>/<module>.schema.yaml
+# in the Calamares 3.4.2 tree, and every one of those schemas declares
+# additionalProperties: false. A module silently ignores an unknown key, which is
+# exactly how displaymanager.conf's `services:` list stayed invisible while the
+# install died at 75%. Checking keys here turns that class of bug into a test
+# failure instead of a hand-clicked install failure.
+audit_bad=0
+fail_audit() { echo "FAIL: $*"; audit_bad=1; }
+audit_conf() {
+  local module="$1" conf="$2" allowed="$3" key
+  if [[ ! -f "$conf" ]]; then
+    fail_audit "$conf is missing for module $module"
+    return
+  fi
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    if [[ " $allowed " != *" $key "* ]]; then
+      fail_audit "$conf uses '$key:', which is not a Calamares 3.4.2 $module key"
+      echo "      allowed keys: $allowed"
+    fi
+  done < <(awk '/^---[[:space:]]*$/{next} /^[A-Za-z_][A-Za-z0-9_-]*:/{sub(/:.*/,""); print}' "$conf")
+}
+
+audit_conf displaymanager "$CONF/displaymanager.conf" \
+  "displaymanagers defaultDesktopEnvironment basicSetup sysconfigSetup greetd lightdm sddm"
+audit_conf services-systemd "$CONF/services-systemd.conf" "units"
+audit_conf finished "$CONF/finished.conf" \
+  "restartNowEnabled restartNowChecked restartNowCommand restartNowMode notifyOnFinished"
+audit_conf partition "$CONF/partition.conf" \
+  "efiSystemPartition efiSystemPartitionSize efiSystemPartitionName efi lvm userSwapChoices armInstall allowZfsEncryption drawNestedPartitions alwaysShowPartitionLabels defaultFileSystemType availableFileSystemTypes mountpointFilesystemRestrictions luksGeneration enableLuksAutomatedPartitioning preCheckEncryption essentialMounts allowManualPartitioning showNotEncryptedBootMessage partitionLayout initialPartitioningChoice initialSwapChoice requiredStorage"
+audit_conf mount "$CONF/mount.conf" "extraMounts btrfsSubvolumes btrfsSwapSubvol mountOptions"
+audit_conf unpackfs "$CONF/unpackfs.conf" "unpack"
+audit_conf grubcfg "$CONF/grubcfg.conf" \
+  "overwrite keep_distributor prefer_grub_d kernel_params defaults always_use_defaults"
+audit_conf bootloader "$CONF/bootloader.conf" \
+  "efiBootLoaderVar efiBootLoader kernelSearchPath kernelName kernelParams kernelPattern loaderEntries refindKernelList grubInstall grubMkconfig grubCfg grubProbe efiBootMgr efiBootloaderId installEFIFallback installHybridGRUB"
+audit_conf shellprocess "$CONF/shellprocess.conf" "dontChroot timeout verbose script i18n"
+audit_conf shellprocess "$CONF/preflight.conf" "dontChroot timeout verbose script i18n"
+audit_conf fstab "$CONF/fstab.conf" "crypttabOptions tmpOptions"
+audit_conf welcome "$CONF/welcome.conf" \
+  "showSupportUrl showKnownIssuesUrl showReleaseNotesUrl showDonateUrl requirements geoip"
+audit_conf users "$CONF/users.conf" \
+  "user defaultGroups autologinGroup sudoersGroup sudoersConfigureWithGroup displayAutologin doAutologin setRootPassword doReusePassword allowWeakPasswords allowWeakPasswordsDefault passwordRequirements hostname allowActiveDirectory presets"
+audit_conf keyboard "$CONF/keyboard.conf" \
+  "xOrgConfFileName convertedKeymapPath writeEtcDefaultKeyboard useLocale1 guessLayout configure"
+audit_conf machineid "$CONF/machineid.conf" \
+  "systemd systemd-style dbus dbus-symlink entropy-copy entropy-files symlink entropy"
+audit_conf umount "$CONF/umount.conf" "emergency"
+
+# Required keys (schema `required:`), and the two module-specific conditions that
+# actually broke installs on 2026-11-21/22.
+grep -q '^userSwapChoices:' "$CONF/partition.conf" || fail_audit "partition.conf requires userSwapChoices"
+grep -q '^tmpOptions:' "$CONF/fstab.conf" || fail_audit "fstab.conf requires tmpOptions"
+grep -q '^defaultGroups:' "$CONF/users.conf" || fail_audit "users.conf requires defaultGroups"
+grep -q '^autologinGroup:' "$CONF/users.conf" || fail_audit "users.conf requires autologinGroup"
+grep -q '^sudoersGroup:' "$CONF/users.conf" || fail_audit "users.conf requires sudoersGroup"
+grep -q '^xOrgConfFileName:' "$CONF/keyboard.conf" || fail_audit "keyboard.conf requires xOrgConfFileName"
+grep -q '^convertedKeymapPath:' "$CONF/keyboard.conf" || fail_audit "keyboard.conf requires convertedKeymapPath"
+grep -q '^script:' "$CONF/shellprocess.conf" || fail_audit "shellprocess.conf requires script:"
+grep -qE '^initialPartitioningChoice:[[:space:]]*"?erase"?[[:space:]]*$' "$CONF/partition.conf" \
+  || fail_audit "partition.conf must preselect Erase disk (initialPartitioningChoice: erase)"
+if grep -q '^availableChoices:' "$CONF/partition.conf"; then
+  fail_audit "partition.conf uses availableChoices:, which does not exist in Calamares 3.4.2 (only initialPartitioningChoice and allowManualPartitioning are read)"
+fi
+
+# displaymanager: a non-empty list is what the module needs; an empty or absent
+# one is the exact "No display managers selected" install failure.
+mapfile -t audit_dms < <(awk '/^displaymanagers:/{f=1;next} f&&/^[^[:space:]#]/{f=0} \
+  f&&/^[[:space:]]*-/{sub(/^[[:space:]]*-[[:space:]]*/,"",$0); gsub(/[]["[:space:]]/,"",$0); print}' "$CONF/displaymanager.conf")
+if (( ${#audit_dms[@]} == 0 )); then
+  fail_audit "No display managers selected for the displaymanager module. The displaymanagers list is empty or undefined in both globalstorage and displaymanager.conf."
+fi
+printf 'displaymanagers: %s\n' "${audit_dms[*]:-<none>}"
+
+# services-systemd: explicit mandatory: on every unit, so a renamed or missing
+# unit can never abort the install by surprise.
+if ! awk '/^units:/{f=1;next} f&&/^[^[:space:]#]/{f=0}
+          f&&/- name:/{n++} f&&/mandatory:/{m++}
+          END{exit !(n > 0 && n == m)}' "$CONF/services-systemd.conf"; then
+  fail_audit "every services-systemd unit needs an explicit mandatory: (true or false)"
+fi
+
+# The finished page has to be in the show sequence with a restart button.
+grep -qE '^[[:space:]]*-[[:space:]]*finished[[:space:]]*$' /etc/calamares/settings.conf \
+  || fail_audit "finished is not in the show sequence of settings.conf (no restart button at 100%)"
+grep -q '^restartNowEnabled:[[:space:]]*true' "$CONF/finished.conf" \
+  || fail_audit "finished.conf must set restartNowEnabled: true"
+grep -q '^restartNowChecked:[[:space:]]*false' "$CONF/finished.conf" \
+  || fail_audit "finished.conf must set restartNowChecked: false"
+
+# Every module that does work must be in the exec sequence.
+for expected in partition mount shellprocess@preflight unpackfs machineid fstab \
+                localecfg users displaymanager networkcfg hwclock services-systemd \
+                shellprocess@postinstall grubcfg bootloader umount; do
+  grep -qE "^[[:space:]]*-[[:space:]]*${expected}[[:space:]]*$" /etc/calamares/settings.conf \
+    || fail_audit "$expected is missing from the exec sequence in settings.conf"
+done
+
+(( audit_bad == 0 )) || { echo "FAIL: the shipped module configuration does not match Calamares 3.4.2"; exit 1; }
+echo "ok: every shipped module config is valid for Calamares 3.4.2"
+
 # btrfsSubvolumes as "mountPoint subvolume" pairs, straight from mount.conf.
 mapfile -t subvol_pairs < <(awk '
   /^btrfsSubvolumes:/{f=1;next}
@@ -192,6 +294,83 @@ mount --rbind /sys /mnt/sys
 mount --rbind /run /mnt/run
 cp -L /etc/resolv.conf /mnt/etc/resolv.conf
 
+step "exec: displaymanager module (from displaymanager.conf)"
+# Module semantics from src/modules/displaymanager/main.py: the list comes from
+# the config, DMs that are not installed in the target are dropped, an empty
+# result is the 75% install failure, and no autologin is written when the users
+# page did not set one.
+mapfile -t dms < <(awk '/^displaymanagers:/{f=1;next} f&&/^[^[:space:]#]/{f=0} \
+  f&&/^[[:space:]]*-/{sub(/^[[:space:]]*-[[:space:]]*/,"",$0); gsub(/[]["[:space:]]/,"",$0); print}' "$CONF/displaymanager.conf")
+if (( ${#dms[@]} == 0 )); then
+  echo "FAIL: No display managers selected for the displaymanager module."
+  echo "      The displaymanagers list is empty or undefined in both globalstorage and displaymanager.conf."
+  exit 1
+fi
+dm_ok=0
+for dm in "${dms[@]}"; do
+  if [[ -x "/mnt/usr/bin/$dm" || -x "/mnt/usr/sbin/$dm" ]]; then
+    echo "displaymanager: $dm is installed"
+    dm_ok=1
+    chroot /mnt /usr/bin/systemctl enable "$dm.service"
+  else
+    echo "displaymanager: $dm selected but not installed"
+  fi
+done
+if (( ! dm_ok )); then
+  echo "FAIL: No display managers selected for the displaymanager module. The list is empty after checking for installed display managers."
+  exit 1
+fi
+basic_setup=$(awk '/^basicSetup:/{gsub(/[^a-z]/,"",$2); print}' "$CONF/displaymanager.conf")
+echo "displaymanager: basicSetup=${basic_setup:-false} (package-owned user/group setup stays untouched)"
+if grep -rqsE '^[[:space:]]*AutoLogin|^[[:space:]]*User[[:space:]]*=' /mnt/etc/sddm.conf /mnt/etc/sddm.conf.d 2>/dev/null; then
+  echo "FAIL: autologin is configured in the target (the users page sets none)"
+  exit 1
+fi
+echo "ok: no autologin in the target"
+
+step "exec: networkcfg module"
+install -d -m 700 /mnt/etc/NetworkManager/system-connections
+if compgen -G "/etc/NetworkManager/system-connections/*" >/dev/null; then
+  cp -f /etc/NetworkManager/system-connections/* /mnt/etc/NetworkManager/system-connections/ || true
+  chmod 600 /mnt/etc/NetworkManager/system-connections/* 2>/dev/null || true
+fi
+chroot /mnt /usr/bin/systemctl enable NetworkManager.service
+chroot /mnt /usr/bin/systemctl disable systemd-networkd.service 2>/dev/null || true
+echo "ok: live NetworkManager connections copied, NetworkManager enabled"
+
+step "exec: hwclock module"
+printf '0.0 0 0.0\n0\nUTC\n' >/mnt/etc/adjtime
+cat /mnt/etc/adjtime
+
+step "exec: services-systemd module (from services-systemd.conf)"
+unit_fail=0
+unit_count=0
+while IFS='|' read -r unit action mandatory; do
+  [[ -n "$unit" ]] || continue
+  action="${action:-enable}"
+  mandatory="${mandatory:-false}"
+  unit_count=$((unit_count + 1))
+  echo "systemctl $action $unit (mandatory=$mandatory)"
+  if ! chroot /mnt /usr/bin/systemctl "$action" "$unit"; then
+    if [[ "$mandatory" == "true" ]]; then
+      echo "FAIL: Cannot $action systemd unit $unit. systemctl $action call in chroot returned an error code."
+      unit_fail=1
+    else
+      echo "warning: Cannot $action systemd unit $unit (mandatory=false, ignored)"
+    fi
+  fi
+done < <(awk '
+  /^units:/{f=1;next}
+  f&&/^[^[:space:]#]/{f=0}
+  f&&/- name:/{if (name != "") print name "|" action "|" mandatory; line=$0; sub(/^[^:]*:[[:space:]]*/,"",line); gsub(/["[:space:]]/,"",line); name=line; action=""; mandatory=""}
+  f&&/^[[:space:]]*action:/{line=$0; sub(/^[^:]*:[[:space:]]*/,"",line); gsub(/["[:space:]]/,"",line); action=line}
+  f&&/^[[:space:]]*mandatory:/{line=$0; sub(/^[^:]*:[[:space:]]*/,"",line); gsub(/["[:space:]]/,"",line); mandatory=line}
+  END{if (name != "") print name "|" action "|" mandatory}
+' "$CONF/services-systemd.conf")
+(( unit_count > 0 )) || { echo "FAIL: services-systemd.conf defines no units"; exit 1; }
+(( unit_fail == 0 )) || exit 1
+echo "ok: $unit_count units processed"
+
 step "chroot: postinstall scripts in Calamares module order"
 for script in 10-mkinitcpio 15-branding 20-keyring 30-mirrors 40-snapshots 50-hardware-detect 99-cleanup; do
   echo "--- $script"
@@ -200,19 +379,103 @@ done
 
 step "chroot: kernel images and initramfs"
 ls -l /mnt/boot/vmlinuz-* /mnt/boot/initramfs-*.img
-[[ -s /mnt/boot/vmlinuz-linux ]] || { echo "ERROR: no vmlinuz-linux after postinstall"; exit 1; }
+for kernel in linux linux-lts; do
+  [[ -s "/mnt/boot/vmlinuz-$kernel" ]] || { echo "ERROR: no vmlinuz-$kernel after postinstall"; exit 1; }
+  size=$(stat -c %s "/mnt/boot/vmlinuz-$kernel")
+  (( size > 5242880 )) || { echo "ERROR: /boot/vmlinuz-$kernel is only ${size} bytes (expected > 5 MiB)"; exit 1; }
+  echo "ok: /boot/vmlinuz-$kernel ${size} bytes"
+done
 [[ -s /mnt/boot/initramfs-linux.img ]] || { echo "ERROR: no initramfs-linux.img after postinstall"; exit 1; }
+[[ -s /mnt/boot/initramfs-linux-lts.img ]] || { echo "ERROR: no initramfs-linux-lts.img after postinstall"; exit 1; }
+
+# The 2026-11-22 boot failure was GRUB reading a zstd-compressed kernel off
+# btrfs. /boot must be marked NOCOW/no-compression so both kernels are stored
+# uncompressed (postinstall/10-mkinitcpio.sh sets this before writing them).
+boot_flags=$(lsattr -d /mnt/boot | awk '{print $1}')
+echo "/boot attributes: ${boot_flags:-none}"
+[[ "$boot_flags" == *C* ]] || { echo "FAIL: /boot lacks the btrfs C flag; GRUB may not be able to read the kernels"; exit 1; }
+echo "ok: /boot is uncompressed for GRUB"
+
+step "exec: grubcfg module (from grubcfg.conf)"
+# Module semantics from src/modules/grubcfg/main.py: kernel_params are merged
+# into GRUB_CMDLINE_LINUX_DEFAULT, every other key in /etc/default/grub is kept,
+# and on a btrfs root GRUB_SAVEDEFAULT is forced to false. console=ttyS0 and a
+# longer timeout are added by this test only, so the installed disk is reachable
+# on the serial console the boot test drives.
+mapfile -t kernel_params < <(awk '/^kernel_params:/{f=1;next} f&&/^[^[:space:]#]/{f=0} \
+  f&&/^[[:space:]]*-/{sub(/^[[:space:]]*-[[:space:]]*/,"",$0); gsub(/[]["[:space:]]/,"",$0); print}' "$CONF/grubcfg.conf")
+echo "kernel_params: ${kernel_params[*]:-<none>}"
+grub_params="${kernel_params[*]:-quiet} console=ttyS0"
+sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"${grub_params}\"|" /mnt/etc/default/grub
+sed -i 's|^GRUB_SAVEDEFAULT=.*|GRUB_SAVEDEFAULT=false|' /mnt/etc/default/grub
+sed -i 's|^GRUB_TIMEOUT=.*|GRUB_TIMEOUT=10|' /mnt/etc/default/grub
+grep -q '^GRUB_TOP_LEVEL="/boot/vmlinuz-linux"' /mnt/etc/default/grub \
+  || { echo "FAIL: GRUB_TOP_LEVEL for the linux kernel was lost from /etc/default/grub"; exit 1; }
+grep -E '^(GRUB_CMDLINE_LINUX_DEFAULT|GRUB_SAVEDEFAULT|GRUB_TIMEOUT|GRUB_TOP_LEVEL|GRUB_TERMINAL_(IN|OUT)PUT)=' /mnt/etc/default/grub
 
 step "chroot: bootloader (grub-install + grub-mkconfig)"
-printf '\nGRUB_CMDLINE_LINUX_DEFAULT="quiet console=ttyS0"\nGRUB_TIMEOUT=3\n' >>/mnt/etc/default/grub
+# installEFIFallback from bootloader.conf decides the removable-path install.
+install_fallback=$(awk '/^installEFIFallback:/{gsub(/[^a-z]/,"",$2); print}' "$CONF/bootloader.conf")
+bootloader_id=$(awk '/^efiBootloaderId:/{gsub(/["[:space:]]/,"",$2); print}' "$CONF/bootloader.conf")
+bootloader_id="${bootloader_id:-mahadevanos}"
+echo "efiBootloaderId=$bootloader_id installEFIFallback=${install_fallback:-false}"
 # Both an NVRAM entry (what Calamares does) and the removable fallback path
 # (installEFIFallback: true in bootloader.conf), so the disk boots even if the
 # firmware forgets the entry.
 chroot /mnt /usr/bin/grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-  --bootloader-id=mahadevanos
-chroot /mnt /usr/bin/grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-  --removable
+  --bootloader-id="$bootloader_id"
+if [[ "${install_fallback:-false}" == "true" ]]; then
+  chroot /mnt /usr/bin/grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+    --removable
+fi
 chroot /mnt /usr/bin/grub-mkconfig -o /boot/grub/grub.cfg
+
+step "GRUB's own reader against the installed disk (the premature-EOF check)"
+# This is the failing component from 2026-11-22:
+#   error: loader/efi/linux.c:grub_cmd_linux:700:premature end of file
+#   /@/boot/vmlinuz-linux-lts
+# grub-fstest runs the same btrfs/zstd code in the installed GRUB, so a short
+# read or a size mismatch here is the boot failure, caught before it boots.
+grub_fail=0
+if command -v grub-fstest >/dev/null 2>&1; then
+  grub-fstest "${DISK}2" ls /@/boot || grub_fail=1
+  for kernel in linux linux-lts; do
+    rm -f "/tmp/grub-read-$kernel"
+    if ! grub-fstest "${DISK}2" cp "/@/boot/vmlinuz-$kernel" "/tmp/grub-read-$kernel"; then
+      echo "FAIL: grub-fstest could not read /@/boot/vmlinuz-$kernel"
+      grub_fail=1
+      continue
+    fi
+    grub_size=$(stat -c %s "/tmp/grub-read-$kernel" 2>/dev/null || echo 0)
+    disk_size=$(stat -c %s "/mnt/boot/vmlinuz-$kernel")
+    echo "grub reads /@/boot/vmlinuz-$kernel: ${grub_size} bytes (on disk: ${disk_size})"
+    if (( grub_size != disk_size )) || (( grub_size < 5242880 )); then
+      echo "FAIL: GRUB sees a truncated kernel for $kernel"
+      grub_fail=1
+    elif ! cmp -s "/tmp/grub-read-$kernel" "/mnt/boot/vmlinuz-$kernel"; then
+      echo "FAIL: what GRUB reads from /@/boot/vmlinuz-$kernel differs from the file on disk"
+      grub_fail=1
+    else
+      echo "ok: what GRUB reads from /@/boot/vmlinuz-$kernel is byte-identical"
+    fi
+  done
+else
+  echo "FAIL: grub-fstest is missing, GRUB's reader cannot be tested"
+  grub_fail=1
+fi
+(( grub_fail == 0 )) || exit 1
+
+step "assert the first GRUB entry is the regular linux kernel"
+first_entry=$(awk '/^[[:space:]]*menuentry /{n++} n==1{print} n==2{exit}' /mnt/boot/grub/grub.cfg)
+printf '%s\n' "$first_entry" | head -3
+if grep -qE 'vmlinuz-linux([[:space:]]|$)' <<<"$first_entry"; then
+  echo "ok: entry 0 boots /@/boot/vmlinuz-linux"
+else
+  echo "FAIL: entry 0 does not boot the regular linux kernel (GRUB_TOP_LEVEL lost?)"
+  exit 1
+fi
+grep -q 'vmlinuz-linux-lts' /mnt/boot/grub/grub.cfg || { echo "FAIL: no linux-lts fallback entry in grub.cfg"; exit 1; }
+echo "ok: linux-lts is present as the fallback entry"
 
 step "chroot: verify the target has no live-only artefacts"
 chroot /mnt /bin/bash -c '

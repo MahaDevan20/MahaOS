@@ -16,7 +16,17 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 require pacman sudo sha256sum awk bsdtar
 command -v mkarchiso >/dev/null 2>&1 || die "mkarchiso missing: pacman -S archiso"
 
-[[ $EUID -ne 0 ]] || die "run as your normal user; the script calls sudo mkarchiso itself"
+# Two supported ways to build: as your normal user (the script elevates with
+# sudo itself), or as root with MAHADEVANOS_ALLOW_ROOT=1 when no password prompt
+# is possible. mkarchiso requires root either way.
+if [[ $EUID -eq 0 ]]; then
+  [[ "${MAHADEVANOS_ALLOW_ROOT:-0}" == "1" ]] ||
+    die "run as your normal user (the script calls sudo mkarchiso itself), or set MAHADEVANOS_ALLOW_ROOT=1 when already root"
+  warn "running as root because MAHADEVANOS_ALLOW_ROOT=1"
+  SUDO=()
+else
+  SUDO=(sudo)
+fi
 
 WORK_PROFILE="$BUILD_DIR/profile"
 WORK_DIR="$BUILD_DIR/work"
@@ -74,12 +84,12 @@ fi
   die "refusing to remove unexpected work directory: $WORK_DIR"
 if [[ -d "$WORK_DIR" ]]; then
   log "clearing previous work directory $WORK_DIR"
-  sudo rm -rf -- "$WORK_DIR" || die "could not clear $WORK_DIR"
+  "${SUDO[@]}" rm -rf -- "$WORK_DIR" || die "could not clear $WORK_DIR"
 fi
 
 log "starting mkarchiso (log: $BUILD_LOG)"
 set +e
-sudo mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$WORK_PROFILE" 2>&1 | tee "$BUILD_LOG"
+"${SUDO[@]}" mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$WORK_PROFILE" 2>&1 | tee "$BUILD_LOG"
 status="${PIPESTATUS[0]}"
 set -e
 (( status == 0 )) || die "mkarchiso failed (exit $status); see $BUILD_LOG"

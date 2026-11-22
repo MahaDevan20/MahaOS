@@ -39,6 +39,59 @@ systemctl --failed --no-legend --no-pager | grep -q mahadevanos && fail "a mahad
  echo "--- kernel and initramfs on disk"
 ls -l /boot/vmlinuz-* /boot/initramfs-*.img 2>/dev/null || fail "kernel or initramfs missing in /boot"
 
+# 2026-11-22: GRUB failed on the installed disk with
+#   error: loader/efi/linux.c:grub_cmd_linux:700:premature end of file
+#   /@/boot/vmlinuz-linux-lts
+# The kernel file was complete after unpackfs; GRUB could not read it because
+# /boot inherited btrfs compress=zstd:1. Both kernels must be present, larger
+# than 5 MiB, and stored without btrfs compression (the `C` flag from
+# `chattr +C /boot`, which postinstall/10-mkinitcpio.sh sets).
+echo "--- kernels present, complete and uncompressed"
+for kernel in linux linux-lts; do
+  file="/boot/vmlinuz-$kernel"
+  if [[ -s "$file" ]]; then
+    size=$(stat -c %s "$file")
+    if (( size > 5242880 )); then
+      ok "$file is ${size} bytes (> 5 MiB)"
+    else
+      fail "$file is only ${size} bytes (expected more than 5 MiB)"
+    fi
+  else
+    fail "$file is missing or empty"
+  fi
+done
+boot_flags=$(lsattr -d /boot 2>/dev/null | awk '{print $1}')
+if [[ "$boot_flags" == *C* ]]; then
+  ok "/boot is marked NOCOW/no-compression (GRUB can read uncompressed kernels)"
+else
+  fail "/boot lacks the btrfs C flag (flags: ${boot_flags:-unreadable}); kernels may be zstd-compressed and unreadable by GRUB"
+fi
+
+# The disk is only known to boot if both kernels reach the login prompt; this
+# script records which one it is running on so the host-side test can assert it.
+echo "--- running kernel"
+printf 'kernel release: %s\n' "$(uname -r)"
+uname -v
+
+# The regular linux kernel must be the first GRUB entry (linux-lts is fallback).
+echo "--- GRUB default entry"
+if [[ -r /boot/grub/grub.cfg ]]; then
+  first_entry=$(awk '/^[[:space:]]*menuentry /{n++} n==1{print} n==2{exit}' /boot/grub/grub.cfg)
+  printf '%s\n' "$first_entry" | head -3
+  if grep -qE 'vmlinuz-linux([[:space:]]|$)' <<<"$first_entry"; then
+    ok "first GRUB entry boots the regular linux kernel"
+  else
+    fail "first GRUB entry does not boot /boot/vmlinuz-linux"
+  fi
+  if grep -c 'vmlinuz-linux-lts' /boot/grub/grub.cfg | grep -q '^[1-9]'; then
+    ok "linux-lts entry present as fallback"
+  else
+    fail "no linux-lts entry in grub.cfg"
+  fi
+else
+  fail "/boot/grub/grub.cfg is not readable"
+fi
+
 # No live-only leftovers from the installer, either.
 [ ! -e /usr/lib/mahadevanos ] && ok "no /usr/lib/mahadevanos kernel stash" || fail "kernel stash left behind"
 

@@ -10,6 +10,12 @@ GRUB_DISTRIBUTOR="MahaDevan OS"
 GRUB_CMDLINE_LINUX_DEFAULT="quiet nowatchdog zswap.enabled=0"
 GRUB_CMDLINE_LINUX=""
 
+# `linux` is the default entry, `linux-lts` stays as the recovery fallback.
+# /etc/grub.d/10_linux puts the kernel named here first in the menu, so entry 0
+# (and therefore a fresh GRUB_DEFAULT=saved) is vmlinuz-linux. Without it
+# grub-mkconfig sorts by version and 6.18.x-lts lands above 7.2.x.
+GRUB_TOP_LEVEL="/boot/vmlinuz-linux"
+
 # Find other operating systems (dual boot). Requires os-prober.
 GRUB_DISABLE_OS_PROBER=false
 
@@ -21,4 +27,11 @@ GRUB_BACKGROUND="/boot/grub/themes/mahadevanos/background.png"
 GRUB_RECORDFAIL_TIMEOUT=10
 GRUB_DISABLE_RECOVERY=false
 
-# Default kernel is `linux`; `linux-lts` is generated as a menu entry for recovery.
+# GRUB is also reachable on ttyS0, so the installed disk can be booted and its
+# kernel selected unattended in QEMU (scripts/test-install-auto.sh --boot-installed
+# --kernel linux|linux-lts, tests/install/verify-installed.sh). On hardware with
+# no serial port the `serial` command fails harmlessly and the normal console is
+# used; nothing else depends on it.
+GRUB_TERMINAL_INPUT="console serial"
+GRUB_TERMINAL_OUTPUT="console serial"
+GRUB_SERIAL_COMMAND="serial --unit=0 --speed=115200 --word=8 --parity=no --stop=1"

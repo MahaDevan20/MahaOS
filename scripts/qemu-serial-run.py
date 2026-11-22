@@ -20,6 +20,12 @@ SUMMARY = sys.argv[4] if len(sys.argv) > 4 else ""
 USER = os.environ.get("LIVE_USER", "liveuser")
 PASSWORD = os.environ.get("LIVE_PASS", "live")
 LOGIN_TIMEOUT = float(os.environ.get("LOGIN_TIMEOUT", "420"))
+# Installed systems expose GRUB on ttyS0 (GRUB_TERMINAL_* in
+# configs/grub/grub-defaults). GRUB_DOWN is how many Down presses to send before
+# Enter: 0 selects the first entry (the regular linux kernel, moved to the top
+# by GRUB_TOP_LEVEL), 1 selects linux-lts. Unset/-1 means "do not touch the
+# menu" and is used for the live ISO, whose loader is systemd-boot.
+GRUB_DOWN = int(os.environ.get("GRUB_DOWN", "-1"))
 # The live session needs sudo (passwordless there); an installed system must not,
 # so its checks run unprivileged.
 USE_SUDO = os.environ.get("USE_SUDO", "1") != "0"
@@ -84,6 +90,19 @@ def plain(data):
 
 
 sock = connect(SOCK)
+
+if GRUB_DOWN >= 0:
+    # The menu is printed on the serial console; wait for it, then pick an entry
+    # with real ANSI arrow keys so the selection is exactly what a user does.
+    if wait_for([b"MahaDevan OS", b"GNU GRUB"], LOGIN_TIMEOUT, "GRUB menu"):
+        time.sleep(0.5)
+        for _ in range(GRUB_DOWN):
+            sock.sendall(b"\x1b[B")  # Down
+            time.sleep(0.4)
+        sock.sendall(b"\r")  # Enter
+        print(f"GRUB: selected entry {GRUB_DOWN}", file=sys.stderr)
+    else:
+        print("GRUB menu never appeared on the serial console", file=sys.stderr)
 
 if not wait_for([b"login:"], LOGIN_TIMEOUT, "login prompt"):
     with open(SUMMARY or LOG + ".summary", "w", encoding="utf-8") as fh:

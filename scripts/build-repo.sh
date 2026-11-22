@@ -23,7 +23,14 @@ set -euo pipefail
 # shellcheck source=scripts/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-[[ $EUID -ne 0 ]] || die "do not run this as root; devtools elevates via sudo itself"
+if [[ $EUID -eq 0 ]]; then
+  # The normal path is "run as your user, devtools elevates itself". A host that
+  # cannot prompt for a password (unattended build) can opt in explicitly; the
+  # packages are still compiled by makepkg inside the clean chroot.
+  [[ "${MAHADEVANOS_ALLOW_ROOT:-0}" == "1" ]] ||
+    die "do not run this as root; devtools elevates via sudo itself (set MAHADEVANOS_ALLOW_ROOT=1 to override)"
+  warn "running as root because MAHADEVANOS_ALLOW_ROOT=1"
+fi
 require makepkg repo-add
 
 CHROOT_BUILD=""

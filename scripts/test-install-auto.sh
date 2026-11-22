@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# Unattended install test on a throwaway qcow2 disk, then a boot of that disk
-# without the ISO.
+# Unattended install test on a throwaway qcow2 disk, then boots of that disk
+# without the ISO — once per installed kernel.
 #
-#   scripts/test-install-auto.sh --install         fresh disk + rehearsal install
-#   scripts/test-install-auto.sh --boot-installed  boot the installed disk only
+#   scripts/test-install-auto.sh --install
+#   scripts/test-install-auto.sh --boot-installed [--kernel linux|linux-lts|both]
 #
-# What --install does: boots the ISO with build/test-disk.qcow2 attached, logs in
-# on the serial console and runs tests/install/rehearsal.sh inside the guest. That
-# script does what Calamares' partition, mount, unpackfs, shellprocess and
-# bootloader modules do (Btrfs subvolumes, unsquashfs, every postinstall script,
-# grub-install) on /dev/vda. It is NOT the Calamares GUI — see
-# documentation/installation/manual-test.md for the human walkthrough.
+# --install boots the ISO with build/test-disk.qcow2 attached, logs in on the
+# serial console and runs tests/install/rehearsal.sh inside the guest. That script
+# runs every module of the shipped settings.conf exec sequence — partition, mount,
+# unpackfs, displaymanager, networkcfg, hwclock, services-systemd, the postinstall
+# scripts, grubcfg and bootloader — reading each module's configuration from
+# /etc/calamares/modules/, and it audits those configs against the Calamares 3.4.2
+# schema. It is not the Calamares GUI; see documentation/installation/manual-test.md.
+#
+# --boot-installed boots the disk without the ISO, picks the GRUB entry over the
+# serial console (entry 0 = linux, entry 1 = linux-lts) and runs
+# tests/install/verify-installed.sh as the unprivileged tester user.
 #
 # No real disk is reachable: the only block device with a size is the qcow2 file.
 set -euo pipefail
@@ -35,9 +40,22 @@ done
 OVMF_VARS_SRC="${OVMF_CODE/CODE/VARS}"
 
 MODE="${1:-}"
+KERNELS="both"
 case "$MODE" in
-  --install|--boot-installed) ;;
-  *) die "usage: $0 --install | --boot-installed" ;;
+  --install|--boot-installed) shift || true ;;
+  *) die "usage: $0 --install | --boot-installed [--kernel linux|linux-lts|both]" ;;
+esac
+while (( $# )); do
+  case "$1" in
+    --kernel) KERNELS="${2:-}"; shift 2 ;;
+    --kernel=*) KERNELS="${1#*=}"; shift ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+case "$KERNELS" in
+  linux|linux-lts) ;;
+  both) [[ "$MODE" == "--boot-installed" ]] || KERNELS="linux" ;;
+  *) die "--kernel must be linux, linux-lts or both" ;;
 esac
 
 VARS="$BUILD_DIR/OVMF_VARS-install.fd"
@@ -70,11 +88,15 @@ s.close()
 PY
 }
 
-cleanup() {
+stop_vm() {
   monitor "quit" >/dev/null 2>&1 || true
-  [[ -f "$PIDFILE" ]] && kill "$(cat "$PIDFILE")" 2>/dev/null || true
+  if [[ -f "$PIDFILE" ]]; then
+    kill "$(cat "$PIDFILE")" 2>/dev/null || true
+    rm -f "$PIDFILE"
+  fi
+  sleep 1
 }
-trap cleanup EXIT INT TERM
+trap stop_vm EXIT INT TERM
 
 accel=()
 [[ -w /dev/kvm ]] && accel=(-enable-kvm -cpu host)
@@ -107,7 +129,7 @@ case "$MODE" in
     fi
     qemu-img create -f qcow2 "$DISK" "$DISK_SIZE" >/dev/null
 
-    log "booting the ISO with $DISK attached (rehearsal install, no GUI)"
+    log "booting the ISO with $DISK attached (scripted install, no GUI)"
     start_vm -cdrom "$ISO" -boot d
 
     LOG="$EVIDENCE_DIR/install-rehearsal.log"
@@ -119,24 +141,56 @@ case "$MODE" in
     LOGIN_TIMEOUT=300 RUN_TIMEOUT="${INSTALL_TIMEOUT:-3600}" \
       python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
       "$SER_SOCK" "$LOG" "$PROJECT_ROOT/tests/install/rehearsal.sh" "$SUMMARY" || STATUS=$?
-    log "rehearsal exit status: $STATUS (evidence: $LOG)"
+    log "install exit status: $STATUS (evidence: $LOG)"
     exit "$STATUS"
     ;;
 
   --boot-installed)
     [[ -f "$DISK" ]] || die "$DISK does not exist; run --install first"
+    [[ -n "${ISO:-}" ]] || warn "no ISO in $OUT_DIR (only needed for --install)"
 
-    log "booting $DISK without the ISO"
-    start_vm
+    status=0
+    for kernel in $([[ "$KERNELS" == "both" ]] && echo "linux linux-lts" || echo "$KERNELS"); do
+      case "$kernel" in
+        linux)    GRUB_DOWN=0; EXPECT='arch1' ; tag="linux" ;;
+        linux-lts) GRUB_DOWN=1; EXPECT='-lts'  ; tag="lts" ;;
+      esac
 
-    LOG="$EVIDENCE_DIR/installed-boot.log"
-    SUMMARY="$EVIDENCE_DIR/installed-boot.txt"
-    : >"$LOG"
-    STATUS=0
-    LIVE_USER=tester LIVE_PASS=test USE_SUDO=0 LOGIN_TIMEOUT=300 RUN_TIMEOUT=600 \
-      python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
-      "$SER_SOCK" "$LOG" "$PROJECT_ROOT/tests/install/verify-installed.sh" "$SUMMARY" || STATUS=$?
-    log "installed-system verification exit status: $STATUS"
-    exit "$STATUS"
+      log "booting $DISK without the ISO, GRUB entry $GRUB_DOWN ($kernel)"
+      rm -f "$MON_SOCK" "$SER_SOCK" "$PIDFILE"
+      start_vm
+
+      LOG="$EVIDENCE_DIR/installed-boot-${tag}.log"
+      SUMMARY="$EVIDENCE_DIR/installed-boot-${tag}.txt"
+      : >"$LOG"
+      run_status=0
+      GRUB_DOWN="$GRUB_DOWN" LIVE_USER=tester LIVE_PASS=test USE_SUDO=0 \
+        LOGIN_TIMEOUT=300 RUN_TIMEOUT=900 \
+        python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
+        "$SER_SOCK" "$LOG" "$PROJECT_ROOT/tests/install/verify-installed.sh" "$SUMMARY" \
+        || run_status=$?
+
+      release="$(sed -n 's/^kernel release: //p' "$SUMMARY" 2>/dev/null | head -1)"
+      if (( run_status != 0 )); then
+        warn "installed-system verification failed on $kernel (driver exit $run_status)"
+        status=1
+      elif [[ -z "$release" ]]; then
+        warn "no 'kernel release:' line in $SUMMARY (did the serial login work?)"
+        status=1
+      elif [[ "$kernel" == "linux" && "$release" != *"$EXPECT"* ]]; then
+        warn "expected the regular linux kernel, but the system is running $release"
+        status=1
+      elif [[ "$kernel" == "linux-lts" && "$release" != *"$EXPECT" ]]; then
+        warn "expected the linux-lts kernel, but the system is running $release"
+        status=1
+      elif ! grep -q 'VERIFY RESULT: PASSED' "$SUMMARY"; then
+        warn "verify-installed.sh did not report PASSED on $kernel"
+        status=1
+      else
+        log "$kernel: booted to the login prompt and verified, running $release"
+      fi
+      stop_vm
+    done
+    exit "$status"
     ;;
 esac

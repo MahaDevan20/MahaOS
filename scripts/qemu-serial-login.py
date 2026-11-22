@@ -57,6 +57,16 @@ COMMANDS = [
         '|| echo NO-HYPRLAND-LOG',
     ),
     ("installer-log", "tail -n 20 /tmp/mahadevanos-installer.log 2>/dev/null || echo NO-INSTALLER-LOG"),
+    (
+        # Calamares logs every module's errors to ~/.cache/calamares/session.log
+        # (Logger.cpp: appLogDir()/session.log). It runs as root from the live
+        # launcher, so the log is under /root. Any ERROR: line fails the boot test.
+        "calamares-log-errors",
+        'LOG=/root/.cache/calamares/session.log; '
+        'if sudo test -f "$LOG"; then '
+        'sudo grep -a "ERROR:" "$LOG" | tail -n 40 || echo NO-ERROR-LINES; '
+        'else echo NO-CALAMARES-SESSION-LOG; fi',
+    ),
     ("os-release", "grep -E '^(ID|PRETTY_NAME)=' /etc/os-release"),
 ]
 

@@ -26,6 +26,14 @@ Honest labels only: `TESTED`, `IMPLEMENTED (untested)`, `EXPERIMENTAL`, `PLANNED
 | M4 | Desktop experience and branding | `PLANNED` (Hyprland config stub only) |
 | M5 | Hardware detection, profiles, optional LUKS | `EXPERIMENTAL` (`profiles/`, `installer/postinstall/60-hardware-detect.sh`) |
 
+The installer is verified by `scripts/test-install-auto.sh --install`, which now
+runs the modules of the shipped `settings.conf` exec sequence (including
+`displaymanager`, `services-systemd` and `grubcfg`), audits every module config
+against the Calamares 3.4.2 schema, and fails on any key Calamares would ignore;
+`--boot-installed --kernel both` then boots the installed disk on `linux` **and**
+`linux-lts` and requires the login prompt on both. See
+`tests/install/README.md` and `documentation/known-issues.md`.
+
 An ISO is built at `out/mahadevanos-2026.11.21-x86_64.iso` (2.6 GiB, 718 packages, pinned 2026/11/01).
 The claim that it boots is backed by `tests/evidence/2026-11-21/` (serial logs, probe output,
 framebuffer screenshots for the default and safe-graphics entries). The install pipeline and

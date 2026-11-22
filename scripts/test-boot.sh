@@ -210,6 +210,21 @@ if grep -qE 'STARTUP: failed modules|not found in module search paths|Invalid in
   grep -E 'ERROR: Module|failed modules|Invalid instance' "$SUMMARY" | sed 's/^/    | /' || true
   installer_missing=1
 fi
+# Every module error in Calamares' own session log is a failure, not a warning:
+# the 2026-11-22 hand install reached 75% before displaymanager.conf's invalid
+# `services:` list turned into "No display managers selected".
+cal_log="$(awk '/^## calamares-log-errors$/{f=1;next} f&&/^## /{exit} f' "$SUMMARY" 2>/dev/null || true)"
+if grep -q 'ERROR:' <<<"$cal_log"; then
+  warn "Calamares logged module errors (see the calamares-log-errors section of $SUMMARY)"
+  grep 'ERROR:' <<<"$cal_log" | sed 's/^/    | /' | head -40
+  exit 1
+fi
+if grep -q 'NO-CALAMARES-SESSION-LOG' <<<"$cal_log"; then
+  warn "Calamares wrote no session.log; module errors could not be checked"
+  exit 1
+fi
+log "Calamares session log contains no ERROR lines"
+
 if (( ${installer_missing:-0} )); then
   exit 1
 fi
