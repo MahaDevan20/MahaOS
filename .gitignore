@@ -47,3 +47,4 @@ tests/evidence/
 # Tooling dirs
 .cloud-attachments/
 .freebuff/
+repo/x86_64/*
