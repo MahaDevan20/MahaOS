@@ -15,7 +15,9 @@
 #
 # --boot-installed boots the disk without the ISO, picks the GRUB entry over the
 # serial console (entry 0 = linux, entry 1 = linux-lts) and runs
-# tests/install/verify-installed.sh as the unprivileged tester user.
+# tests/install/verify-installed.sh as the unprivileged account the install
+# created: INSTALL_USER/INSTALL_PASS (default tester/test, which is what the
+# rehearsal installs; scripts/test-install-gui.sh uses its own values).
 #
 # No real disk is reachable: the only block device with a size is the qcow2 file.
 set -euo pipefail
@@ -152,11 +154,15 @@ case "$MODE" in
     status=0
     for kernel in $([[ "$KERNELS" == "both" ]] && echo "linux linux-lts" || echo "$KERNELS"); do
       case "$kernel" in
-        linux)    GRUB_DOWN=0; EXPECT='arch1' ; tag="linux" ;;
-        linux-lts) GRUB_DOWN=1; EXPECT='-lts'  ; tag="lts" ;;
+        # GRUB_DISABLE_SUBMENU=y gives every kernel three entries: 0..2 are
+        # linux (default, fallback initramfs, recovery) and 3..5 are linux-lts.
+        # tests/install/gui-install-audit.sh asserts that layout on the installed
+        # grub.cfg, and the release check below catches a wrong entry.
+        linux)     GRUB_INDEX=0; EXPECT='arch1'; tag="linux" ;;
+        linux-lts) GRUB_INDEX=${GRUB_LTS_INDEX:-3}; EXPECT='-lts'; tag="lts" ;;
       esac
 
-      log "booting $DISK without the ISO, GRUB entry $GRUB_DOWN ($kernel)"
+      log "booting $DISK without the ISO, GRUB entry $GRUB_INDEX ($kernel)"
       rm -f "$MON_SOCK" "$SER_SOCK" "$PIDFILE"
       start_vm
 
@@ -164,7 +170,7 @@ case "$MODE" in
       SUMMARY="$EVIDENCE_DIR/installed-boot-${tag}.txt"
       : >"$LOG"
       run_status=0
-      GRUB_DOWN="$GRUB_DOWN" LIVE_USER=tester LIVE_PASS=test USE_SUDO=0 \
+      GRUB_DOWN="$GRUB_INDEX" LIVE_USER="${INSTALL_USER:-tester}" LIVE_PASS="${INSTALL_PASS:-test}" USE_SUDO=0 \
         LOGIN_TIMEOUT=300 RUN_TIMEOUT=900 \
         python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
         "$SER_SOCK" "$LOG" "$PROJECT_ROOT/tests/install/verify-installed.sh" "$SUMMARY" \

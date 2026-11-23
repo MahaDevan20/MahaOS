@@ -71,16 +71,75 @@ if grep -q '^commands:' "$CONF/shellprocess.conf"; then
 fi
 grep -q 'check-root-mount.sh' "$CONF/preflight.conf" || { echo "FAIL: preflight guard not configured"; exit 1; }
 [[ -x /usr/share/mahadevanos/calamares/check-root-mount.sh ]] || { echo "FAIL: check-root-mount.sh missing or not executable"; exit 1; }
-# Only real sequence entries count: comments in settings.conf mention both
-# module names and must not influence the order check.
-# Instance keys are "module@id"; a bare id is read as a module name and
-# fails to load ("Module preflight@preflight not found").
-pre=$(awk '/^  - exec:/{f=1;next} f&&/^[^[:space:]]/{f=0} \
-  f&&/^[[:space:]]*-[[:space:]]*shellprocess@preflight[[:space:]]*$/{print NR; exit}' /etc/calamares/settings.conf)
-unp=$(awk '/^  - exec:/{f=1;next} f&&/^[^[:space:]]/{f=0} \
-  f&&/^[[:space:]]*-[[:space:]]*unpackfs[[:space:]]*$/{print NR; exit}' /etc/calamares/settings.conf)
-echo "exec order: preflight=$pre unpackfs=$unp"
+# The show/exec phase order is what decides whether the install runs at all.
+# Calamares keeps the written order of the phases (Settings::interpretSequence ->
+# ModuleManager::loadModules) and builds one view step per show entry plus one
+# ExecutionViewStep for the exec phase (ViewManager). FinishedViewStep reports
+# isAtEnd() == true and isNextEnabled() == false, so a `finished` entry in the
+# show list that precedes the exec phase puts "All done. ... has been installed"
+# directly after the summary page and makes the exec phase unreachable -- the
+# 2026-11-22 hand install that finished in one second and installed nothing.
+seq_dump=$(awk '
+  /^  - (show|exec):/ {
+    action = $2; sub(/:$/, "", action); phase++
+    printf "%d|%s|<phase>\n", phase, action
+    next
+  }
+  phase && /^[[:space:]]+-[[:space:]]*[A-Za-z0-9_@-]+[[:space:]]*$/ {
+    line = $0
+    sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+    gsub(/[[:space:]]/, "", line)
+    printf "%d|%s|%s\n", phase, action, line
+  }
+' /etc/calamares/settings.conf)
+phase_actions=$(printf '%s\n' "$seq_dump" | awk -F'|' '$3=="<phase>"{printf "%s%s", sep, $2; sep=" "}')
+echo "sequence phases: $phase_actions"
+[[ "$phase_actions" == "show exec show" ]] || {
+  echo "FAIL: settings.conf sequence must be exactly show -> exec -> show(finished) (got: '$phase_actions')"
+  exit 1
+}
+phase_of_finished=$(printf '%s\n' "$seq_dump" | awk -F'|' '$3=="finished"{print $1}')
+finished_count=$(printf '%s\n' "$seq_dump" | awk -F'|' '$3=="finished"{n++} END{print n+0}')
+echo "finished: $finished_count entry/entries in phase ${phase_of_finished:-none}"
+[[ "$finished_count" == "1" ]] || { echo "FAIL: settings.conf must list finished exactly once (got $finished_count)"; exit 1; }
+[[ "$phase_of_finished" == "3" ]] || {
+  echo "FAIL: finished is in sequence phase $phase_of_finished; it must be the show phase AFTER the exec phase (phase 3)"
+  exit 1
+}
+mapfile -t EXEC_MODULES < <(printf '%s\n' "$seq_dump" | awk -F'|' '$1=="2" && $3!="<phase>"{print $3}')
+echo "exec phase: ${#EXEC_MODULES[@]} modules: ${EXEC_MODULES[*]}"
+(( ${#EXEC_MODULES[@]} >= 16 )) || {
+  echo "FAIL: the exec phase lists ${#EXEC_MODULES[@]} modules; at least 16 are expected, so most of the install would not run"
+  exit 1
+}
+for expected in partition mount shellprocess@preflight unpackfs machineid fstab locale keyboard \
+                localecfg users displaymanager networkcfg hwclock services-systemd \
+                shellprocess@postinstall grubcfg bootloader umount; do
+  printf '%s\n' "${EXEC_MODULES[@]}" | grep -qx -- "$expected" \
+    || { echo "FAIL: $expected is missing from the exec phase of settings.conf"; exit 1; }
+done
+# Instance keys are "module@id"; a bare id is read as a module name and fails to
+# load ("Module preflight@preflight not found").
+pre_line=$(printf '%s\n' "$seq_dump" | awk -F'|' '$1=="2"{n++; if ($3=="shellprocess@preflight") p=n; if ($3=="unpackfs") u=n} END{print p" "u}')
+read -r pre unp <<<"$pre_line"
+echo "exec order: preflight=#$pre unpackfs=#$unp"
 [[ -n "$pre" && -n "$unp" && "$pre" -lt "$unp" ]] || { echo "FAIL: preflight must run before unpackfs in settings.conf"; exit 1; }
+# quit-at-end: ViewManager::updateButtonLabels() calls quit() the moment the last
+# step is the finished page, which hides it and leaves the restart button inert.
+if grep -qE '^quit-at-end:[[:space:]]*true' /etc/calamares/settings.conf; then
+  echo "FAIL: quit-at-end must be false; true exits Calamares as soon as the finished page is shown"
+  exit 1
+fi
+grep -qE '^quit-at-end:[[:space:]]*false' /etc/calamares/settings.conf \
+  || { echo "FAIL: settings.conf must set quit-at-end: false"; exit 1; }
+# Every exec entry must be exercised by this rehearsal; see the covered[] marks.
+declare -A covered=()
+cover() {
+  local key="$1"
+  printf '%s\n' "${EXEC_MODULES[@]}" | grep -qx -- "$key" \
+    || { echo "ERROR: rehearsal covers '$key', which is not in the exec phase"; exit 1; }
+  covered["$key"]=1
+}
 
 step "module configuration audit against Calamares 3.4.2"
 # Every name below is a top-level key of src/modules/<module>/<module>.schema.yaml
@@ -170,8 +229,10 @@ grep -qE '^[[:space:]]*-[[:space:]]*finished[[:space:]]*$' /etc/calamares/settin
   || fail_audit "finished is not in the show sequence of settings.conf (no restart button at 100%)"
 grep -q '^restartNowEnabled:[[:space:]]*true' "$CONF/finished.conf" \
   || fail_audit "finished.conf must set restartNowEnabled: true"
-grep -q '^restartNowChecked:[[:space:]]*false' "$CONF/finished.conf" \
-  || fail_audit "finished.conf must set restartNowChecked: false"
+grep -qE '^restartNowMode:[[:space:]]*"?user-checked"?[[:space:]]*$' "$CONF/finished.conf" \
+  || fail_audit "finished.conf must set restartNowMode: user-checked so Done restarts by default"
+grep -qE '^restartNowCommand:[[:space:]]*"?(systemctl reboot|reboot|shutdown -r now)"?[[:space:]]*$' "$CONF/finished.conf" \
+  || fail_audit "finished.conf restartNowCommand must be a working reboot command (systemctl reboot)"
 
 # Every module that does work must be in the exec sequence.
 for expected in partition mount shellprocess@preflight unpackfs machineid fstab \
@@ -204,6 +265,7 @@ btrfs_opts=$(awk '
 echo "btrfs mount options: $btrfs_opts"
 
 step "partitioning $DISK (one ${esp_mib}MiB ESP from efi.recommendedSize + Btrfs root)"
+cover partition
 sgdisk --zap-all "$DISK"
 sgdisk -n 1:0:+"${esp_mib}"M -t 1:ef00 -c 1:boot "$DISK"
 sgdisk -n 2:0:0              -t 2:8300 -c 2:root "$DISK"
@@ -212,6 +274,7 @@ sleep 2
 lsblk -o NAME,SIZE,FSTYPE,PARTLABEL "$DISK"
 
 step "filesystems (FAT32 ESP, Btrfs root)"
+cover mount
 mkfs.fat -F32 "/dev/vda1"
 mkfs.btrfs -f -L mahadevanos "/dev/vda2"
 
@@ -228,6 +291,7 @@ root_sv=$(printf '%s\n' "${subvol_pairs[@]}" | awk '$1=="/"{print $2; exit}')
 mount -o "${btrfs_opts},subvol=${root_sv}" "/dev/vda2" /mnt
 
 step "preflight guard: it must reject a target root that is not a mount"
+cover shellprocess@preflight
 mkdir -p /tmp/not-a-mount
 if /usr/share/mahadevanos/calamares/check-root-mount.sh /tmp/not-a-mount; then
   echo "FAIL: preflight guard accepted a tmpfs directory as the target root"
@@ -237,7 +301,18 @@ else
 fi
 
 step "unpackfs: unsquashfs $SFS -> /mnt"
+cover unpackfs
 unsquashfs -q -d /mnt "$SFS"
+# A module that "succeeds" without copying the system is the failure this test
+# exists to catch: assert real content rather than just the exit status.
+for p in /mnt/usr/bin/bash /mnt/etc/os-release /mnt/etc/passwd /mnt/usr/lib/os-release; do
+  [[ -e "$p" ]] || { echo "FAIL: unpackfs did not create $p; the root was not populated"; exit 1; }
+done
+unpacked_files=$(find /mnt -xdev | wc -l)
+unpacked_du=$(du -sxm /mnt | awk '{print $1}')
+echo "unpackfs: $unpacked_files paths, ${unpacked_du} MiB in /mnt"
+(( unpacked_files > 1000 )) || { echo "FAIL: only $unpacked_files paths in the target; unpackfs copied almost nothing"; exit 1; }
+(( unpacked_du > 500 )) || { echo "FAIL: only ${unpacked_du} MiB in the target; unpackfs copied almost nothing"; exit 1; }
 
 step "preflight guard: it must accept the real target root"
 /usr/share/mahadevanos/calamares/check-root-mount.sh /mnt
@@ -254,6 +329,7 @@ done
 mount "/dev/vda1" /mnt/boot/efi
 
 step "fstab (what Calamares' fstab module writes)"
+cover fstab
 root_uuid=$(blkid -s UUID -o value "/dev/vda2")
 esp_uuid=$(blkid -s UUID -o value "/dev/vda1")
 fstab_opts="rw,${btrfs_opts//defaults,/}"
@@ -269,6 +345,9 @@ fstab_opts="rw,${btrfs_opts//defaults,/}"
 cat /mnt/etc/fstab
 
 step "machine-id, hostname, locale"
+cover machineid
+cover locale
+cover keyboard
 echo mahadevanos-test >/mnt/etc/hostname
 cat >/mnt/etc/hosts <<'EOF'
 127.0.0.1 localhost
@@ -281,7 +360,17 @@ echo "KEYMAP=us" >/mnt/etc/vconsole.conf
 rm -f /mnt/etc/machine-id
 systemd-machine-id-setup --root=/mnt
 
+step "exec: localecfg module (generate the locales of locale.gen)"
+cover localecfg
+chroot /mnt /usr/bin/locale-gen
+[[ -s /mnt/usr/lib/locale/locale-archive ]] || {
+  echo "FAIL: localecfg did not produce /usr/lib/locale/locale-archive"
+  exit 1
+}
+echo "ok: locale archive $(stat -c %s /mnt/usr/lib/locale/locale-archive) bytes"
+
 step "create the real user (what Calamares' users module writes)"
+cover users
 chroot /mnt /usr/bin/useradd -m -G wheel -s /bin/bash tester
 echo 'tester:test' | chroot /mnt /usr/bin/chpasswd
 
@@ -295,6 +384,7 @@ mount --rbind /run /mnt/run
 cp -L /etc/resolv.conf /mnt/etc/resolv.conf
 
 step "exec: displaymanager module (from displaymanager.conf)"
+cover displaymanager
 # Module semantics from src/modules/displaymanager/main.py: the list comes from
 # the config, DMs that are not installed in the target are dropped, an empty
 # result is the 75% install failure, and no autologin is written when the users
@@ -320,15 +410,14 @@ if (( ! dm_ok )); then
   echo "FAIL: No display managers selected for the displaymanager module. The list is empty after checking for installed display managers."
   exit 1
 fi
-basic_setup=$(awk '/^basicSetup:/{gsub(/[^a-z]/,"",$2); print}' "$CONF/displaymanager.conf")
+basic_setup=$(awk '/^basicSetup:/{gsub(/[^a-z]/,"",$2); print $2}' "$CONF/displaymanager.conf")
 echo "displaymanager: basicSetup=${basic_setup:-false} (package-owned user/group setup stays untouched)"
-if grep -rqsE '^[[:space:]]*AutoLogin|^[[:space:]]*User[[:space:]]*=' /mnt/etc/sddm.conf /mnt/etc/sddm.conf.d 2>/dev/null; then
-  echo "FAIL: autologin is configured in the target (the users page sets none)"
-  exit 1
-fi
-echo "ok: no autologin in the target"
+# The live autologin drop-in is still in the target here: Calamares runs this
+# module before the postinstall shellprocess, and 99-cleanup.sh removes it. The
+# absence of autologin is asserted after the postinstall scripts below.
 
 step "exec: networkcfg module"
+cover networkcfg
 install -d -m 700 /mnt/etc/NetworkManager/system-connections
 if compgen -G "/etc/NetworkManager/system-connections/*" >/dev/null; then
   cp -f /etc/NetworkManager/system-connections/* /mnt/etc/NetworkManager/system-connections/ || true
@@ -339,10 +428,12 @@ chroot /mnt /usr/bin/systemctl disable systemd-networkd.service 2>/dev/null || t
 echo "ok: live NetworkManager connections copied, NetworkManager enabled"
 
 step "exec: hwclock module"
+cover hwclock
 printf '0.0 0 0.0\n0\nUTC\n' >/mnt/etc/adjtime
 cat /mnt/etc/adjtime
 
 step "exec: services-systemd module (from services-systemd.conf)"
+cover services-systemd
 unit_fail=0
 unit_count=0
 while IFS='|' read -r unit action mandatory; do
@@ -372,10 +463,20 @@ done < <(awk '
 echo "ok: $unit_count units processed"
 
 step "chroot: postinstall scripts in Calamares module order"
+cover shellprocess@postinstall
 for script in 10-mkinitcpio 15-branding 20-keyring 30-mirrors 40-snapshots 50-hardware-detect 99-cleanup; do
   echo "--- $script"
   chroot /mnt "/usr/share/mahadevanos/postinstall/${script}.sh"
 done
+
+step "assert the postinstall cleanup left no autologin"
+if grep -rqsE '^[[:space:]]*AutoLogin|^[[:space:]]*User[[:space:]]*=' \
+  /mnt/etc/sddm.conf /mnt/etc/sddm.conf.d 2>/dev/null; then
+  echo "FAIL: SDDM still has an autologin user configured after the postinstall cleanup"
+  grep -rnE '^[[:space:]]*AutoLogin|^[[:space:]]*User[[:space:]]*=' /mnt/etc/sddm.conf /mnt/etc/sddm.conf.d 2>/dev/null
+  exit 1
+fi
+echo "ok: no autologin in the installed target"
 
 step "chroot: kernel images and initramfs"
 ls -l /mnt/boot/vmlinuz-* /mnt/boot/initramfs-*.img
@@ -383,7 +484,19 @@ for kernel in linux linux-lts; do
   [[ -s "/mnt/boot/vmlinuz-$kernel" ]] || { echo "ERROR: no vmlinuz-$kernel after postinstall"; exit 1; }
   size=$(stat -c %s "/mnt/boot/vmlinuz-$kernel")
   (( size > 5242880 )) || { echo "ERROR: /boot/vmlinuz-$kernel is only ${size} bytes (expected > 5 MiB)"; exit 1; }
-  echo "ok: /boot/vmlinuz-$kernel ${size} bytes"
+  # GRUB 2.16 reads btrfs files block by block and skips the tail extent: a file
+  # that ends mid-block is read short ("premature end of file"). 10-mkinitcpio.sh
+  # pads every /boot file to a 4096-byte multiple.
+  (( size % 4096 == 0 )) || {
+    echo "ERROR: /boot/vmlinuz-$kernel is ${size} bytes, $(( size % 4096 )) over a 4096-byte boundary; GRUB reads that short"
+    exit 1
+  }
+  echo "ok: /boot/vmlinuz-$kernel ${size} bytes (block-aligned for GRUB)"
+done
+for img in /mnt/boot/initramfs-linux.img /mnt/boot/initramfs-linux-lts.img; do
+  size=$(stat -c %s "$img")
+  (( size % 4096 == 0 )) || { echo "ERROR: $img is ${size} bytes, not block-aligned; GRUB reads it short"; exit 1; }
+  echo "ok: $img ${size} bytes (block-aligned for GRUB)"
 done
 [[ -s /mnt/boot/initramfs-linux.img ]] || { echo "ERROR: no initramfs-linux.img after postinstall"; exit 1; }
 [[ -s /mnt/boot/initramfs-linux-lts.img ]] || { echo "ERROR: no initramfs-linux-lts.img after postinstall"; exit 1; }
@@ -397,6 +510,7 @@ echo "/boot attributes: ${boot_flags:-none}"
 echo "ok: /boot is uncompressed for GRUB"
 
 step "exec: grubcfg module (from grubcfg.conf)"
+cover grubcfg
 # Module semantics from src/modules/grubcfg/main.py: kernel_params are merged
 # into GRUB_CMDLINE_LINUX_DEFAULT, every other key in /etc/default/grub is kept,
 # and on a btrfs root GRUB_SAVEDEFAULT is forced to false. console=ttyS0 and a
@@ -414,9 +528,10 @@ grep -q '^GRUB_TOP_LEVEL="/boot/vmlinuz-linux"' /mnt/etc/default/grub \
 grep -E '^(GRUB_CMDLINE_LINUX_DEFAULT|GRUB_SAVEDEFAULT|GRUB_TIMEOUT|GRUB_TOP_LEVEL|GRUB_TERMINAL_(IN|OUT)PUT)=' /mnt/etc/default/grub
 
 step "chroot: bootloader (grub-install + grub-mkconfig)"
+cover bootloader
 # installEFIFallback from bootloader.conf decides the removable-path install.
-install_fallback=$(awk '/^installEFIFallback:/{gsub(/[^a-z]/,"",$2); print}' "$CONF/bootloader.conf")
-bootloader_id=$(awk '/^efiBootloaderId:/{gsub(/["[:space:]]/,"",$2); print}' "$CONF/bootloader.conf")
+install_fallback=$(awk '/^installEFIFallback:/{gsub(/[^a-z]/,"",$2); print $2}' "$CONF/bootloader.conf")
+bootloader_id=$(awk '/^efiBootloaderId:/{gsub(/["[:space:]]/,"",$2); print $2}' "$CONF/bootloader.conf")
 bootloader_id="${bootloader_id:-mahadevanos}"
 echo "efiBootloaderId=$bootloader_id installEFIFallback=${install_fallback:-false}"
 # Both an NVRAM entry (what Calamares does) and the removable fallback path
@@ -494,12 +609,41 @@ chroot /mnt /bin/bash -c '
 '
 
 step "unmount"
+cover umount
 # The chroot bind mounts keep /mnt busy; lazy unmount after the sync is enough
 # for a VM that is about to power off.
 sync
 for dir in /mnt/run /mnt/sys /mnt/proc /mnt/dev; do umount -l "$dir" 2>/dev/null || true; done
 umount -lR /mnt 2>/dev/null || true
 findmnt -R /mnt || echo "all target mounts released"
+
+step "assert the disk really carries the installed system"
+# "Nothing was installed" is the 2026-11-22 failure mode; check the disk itself.
+lsblk -o NAME,SIZE,FSTYPE,PARTLABEL,UUID "$DISK"
+for part in "${DISK}1" "${DISK}2"; do
+  [[ -b "$part" ]] || { echo "FAIL: $part does not exist on the disk after the install"; exit 1; }
+done
+esp_fstype=$(blkid -s TYPE -o value "${DISK}1")
+root_fstype=$(blkid -s TYPE -o value "${DISK}2")
+echo "${DISK}1: ${esp_fstype:-<none>}  ${DISK}2: ${root_fstype:-<none>}"
+[[ "$esp_fstype" == "vfat" ]] || { echo "FAIL: ${DISK}1 is not a FAT filesystem (got '${esp_fstype:-none}')"; exit 1; }
+[[ "$root_fstype" == "btrfs" ]] || { echo "FAIL: ${DISK}2 is not Btrfs (got '${root_fstype:-none}')"; exit 1; }
+
+step "exec coverage: every module in settings.conf's exec phase ran here"
+missing_exec=()
+for key in "${EXEC_MODULES[@]}"; do
+  [[ -n "${covered[$key]:-}" ]] || missing_exec+=("$key")
+done
+echo "exec jobs covered: ${#covered[@]}/${#EXEC_MODULES[@]}"
+if (( ${#missing_exec[@]} )); then
+  echo "FAIL: the rehearsal never ran: ${missing_exec[*]}"
+  exit 1
+fi
+(( ${#covered[@]} == ${#EXEC_MODULES[@]} )) || {
+  echo "FAIL: covered ${#covered[@]} of ${#EXEC_MODULES[@]} exec modules"
+  exit 1
+}
+printf 'ok: %d/%d exec modules exercised\n' "${#covered[@]}" "${#EXEC_MODULES[@]}"
 
 step "rehearsal complete"
 exit 0

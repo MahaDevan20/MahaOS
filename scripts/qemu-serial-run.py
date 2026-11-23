@@ -22,9 +22,12 @@ PASSWORD = os.environ.get("LIVE_PASS", "live")
 LOGIN_TIMEOUT = float(os.environ.get("LOGIN_TIMEOUT", "420"))
 # Installed systems expose GRUB on ttyS0 (GRUB_TERMINAL_* in
 # configs/grub/grub-defaults). GRUB_DOWN is how many Down presses to send before
-# Enter: 0 selects the first entry (the regular linux kernel, moved to the top
-# by GRUB_TOP_LEVEL), 1 selects linux-lts. Unset/-1 means "do not touch the
-# menu" and is used for the live ISO, whose loader is systemd-boot.
+# Enter, i.e. the index of the entry to boot; unset/-1 means "do not touch the
+# menu" (the live ISO's loader is systemd-boot). With GRUB_DISABLE_SUBMENU=y
+# every kernel contributes three entries -- default, fallback initramfs,
+# recovery -- so 0 is the regular linux kernel and 3 is linux-lts;
+# tests/install/gui-install-audit.sh asserts that layout on the installed
+# grub.cfg before the boot test relies on it.
 GRUB_DOWN = int(os.environ.get("GRUB_DOWN", "-1"))
 # The live session needs sudo (passwordless there); an installed system must not,
 # so its checks run unprivileged.
@@ -95,7 +98,7 @@ if GRUB_DOWN >= 0:
     # The menu is printed on the serial console; wait for it, then pick an entry
     # with real ANSI arrow keys so the selection is exactly what a user does.
     if wait_for([b"MahaDevan OS", b"GNU GRUB"], LOGIN_TIMEOUT, "GRUB menu"):
-        time.sleep(0.5)
+        time.sleep(1.0)
         for _ in range(GRUB_DOWN):
             sock.sendall(b"\x1b[B")  # Down
             time.sleep(0.4)
@@ -104,19 +107,41 @@ if GRUB_DOWN >= 0:
     else:
         print("GRUB menu never appeared on the serial console", file=sys.stderr)
 
-if not wait_for([b"login:"], LOGIN_TIMEOUT, "login prompt"):
+# The serial chardev is `server,nowait`: whatever the getty printed while no
+# client was connected is gone, and agetty does not reprint "login:" on its own.
+# Nudge it with a bare newline every few seconds instead of waiting passively
+# (the GUI install test connects long after the live system has booted).
+login_deadline = time.time() + LOGIN_TIMEOUT
+next_nudge = 0.0
+got_login = False
+already_shell = False
+while time.time() < login_deadline:
+    pump()
+    if b"login:" in seen:
+        got_login = True
+        break
+    # A previous run may have left its shell open on the console; it is already
+    # the account the payload needs, so no login is required.
+    if re.search(rb"[$#] ?$", seen.rstrip() + b""):
+        already_shell = True
+        break
+    if time.time() >= next_nudge:
+        send("\n")
+        next_nudge = time.time() + 5
+if not got_login and not already_shell:
     with open(SUMMARY or LOG + ".summary", "w", encoding="utf-8") as fh:
         fh.write("NO LOGIN PROMPT\n\n" + plain(seen)[-4000:])
     raise SystemExit(2)
 
-time.sleep(0.5)
-send(f"{USER}\n")
-if not wait_for([b"Password:"], 60, "password prompt"):
-    raise SystemExit(2)
-time.sleep(0.3)
-send(f"{PASSWORD}\n")
-time.sleep(2)
-pump()
+if not already_shell:
+    time.sleep(0.5)
+    send(f"{USER}\n")
+    if not wait_for([b"Password:"], 60, "password prompt"):
+        raise SystemExit(2)
+    time.sleep(0.3)
+    send(f"{PASSWORD}\n")
+    time.sleep(2)
+    pump()
 send("stty -echo\n")
 wait_prompt(20)
 

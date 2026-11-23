@@ -6,6 +6,10 @@ GRUB_DEFAULT=saved
 GRUB_SAVEDEFAULT=true
 GRUB_TIMEOUT=5
 GRUB_TIMEOUT_STYLE=menu
+# Without this, grub-mkconfig hides every kernel but the default one in an
+# "Advanced options" submenu, so linux-lts is not a menu entry the user (or the
+# boot test) can pick as the fallback.
+GRUB_DISABLE_SUBMENU=y
 GRUB_DISTRIBUTOR="MahaDevan OS"
 GRUB_CMDLINE_LINUX_DEFAULT="quiet nowatchdog zswap.enabled=0"
 GRUB_CMDLINE_LINUX=""

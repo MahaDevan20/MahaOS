@@ -73,23 +73,25 @@ echo "--- running kernel"
 printf 'kernel release: %s\n' "$(uname -r)"
 uname -v
 
-# The regular linux kernel must be the first GRUB entry (linux-lts is fallback).
-echo "--- GRUB default entry"
-if [[ -r /boot/grub/grub.cfg ]]; then
-  first_entry=$(awk '/^[[:space:]]*menuentry /{n++} n==1{print} n==2{exit}' /boot/grub/grub.cfg)
-  printf '%s\n' "$first_entry" | head -3
-  if grep -qE 'vmlinuz-linux([[:space:]]|$)' <<<"$first_entry"; then
-    ok "first GRUB entry boots the regular linux kernel"
-  else
-    fail "first GRUB entry does not boot /boot/vmlinuz-linux"
-  fi
-  if grep -c 'vmlinuz-linux-lts' /boot/grub/grub.cfg | grep -q '^[1-9]'; then
-    ok "linux-lts entry present as fallback"
-  else
-    fail "no linux-lts entry in grub.cfg"
-  fi
+# /boot/grub/grub.cfg is root-only (grub-mkconfig writes it 0600), and this
+# script must run unprivileged. The entry order is therefore asserted where root
+# is available: tests/install/rehearsal.sh (entry 0 must be vmlinuz-linux) and
+# this boot test itself, which selects entry 0 and requires the regular linux
+# release and entry 1 and requires the -lts release.
+echo "--- GRUB configuration"
+if [[ -e /boot/grub/grub.cfg ]]; then
+  ok "grub.cfg present (root-only; entry order is proven by the boot selection)"
 else
-  fail "/boot/grub/grub.cfg is not readable"
+  fail "/boot/grub/grub.cfg is missing"
+fi
+# The ESP is mounted with umask=0077, so its contents are root-only and this
+# script must stay unprivileged. tests/install/gui-install-audit.sh (root) checks
+# EFI/mahadevanos/grubx64.efi and EFI/BOOT/BOOTX64.EFI; here the mount is what
+# matters.
+if findmnt -rn -o TARGET /boot/efi >/dev/null 2>&1; then
+  ok "ESP mounted at /boot/efi (contents are root-only)"
+else
+  fail "/boot/efi is not a mount point"
 fi
 
 # No live-only leftovers from the installer, either.

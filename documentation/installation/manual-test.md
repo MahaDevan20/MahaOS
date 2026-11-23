@@ -1,7 +1,23 @@
 # Manual install test (human checklist)
 
-The installer is a GUI. An agent can build and boot the ISO, but it cannot click
-through Calamares, so this checklist is the human half of M2/M3 acceptance.
+The installer is a GUI, and its own `settings.conf` sequence decides whether the
+exec phase runs at all — a module-level rehearsal cannot see that (2026-11-22: the
+scripted rehearsal passed while the hand install printed "All done" one second
+after the summary page and installed nothing).
+
+`scripts/test-install-gui.sh` therefore drives the **real** Calamares window in a
+QEMU guest: the pages a person clicks (language, location, keyboard, Erase disk,
+users, summary, install) are operated through the QEMU monitor and read back with
+OCR, then the installed disk and Calamares' own `session.log` are audited and the
+finished page's restart control is exercised:
+
+```bash
+./scripts/test-install-gui.sh
+# evidence: tests/evidence/<date>/gui-install.log, gui-shots/, gui-install-audit.txt
+```
+
+What it cannot show is how the desktop looks and feels on real hardware, or the
+snapshot/recovery flow; that is what this checklist is for.
 
 ## Prepare
 
