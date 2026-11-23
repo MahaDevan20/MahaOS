@@ -1,0 +1,63 @@
+# Maintainer: MahaDevan
+# The learning material a new user needs on day one, all offline:
+#   /usr/share/doc/mahadevanos/{commands,shortcuts,network}.md
+#   /usr/bin/mhelp                  (mhelp commands | keys | network | <word>)
+#   /etc/profile.d                  (one-line hint per terminal session)
+#   /etc/skel/practice              (files that are safe to experiment on)
+#   launcher entries                (shortcut cheat sheet and help, in wofi)
+#
+# shortcuts.md is generated from configs/hypr/hyprland.lua by
+# scripts/gen-shortcuts.sh (run by scripts/build-repo.sh before packaging) and
+# checked by tests/docs/check-learning.sh, so it cannot drift from the real
+# compositor configuration.
+pkgname=mahadevanos-learning
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Offline help for MahaDevan's OS: command guide, shortcuts, network, mhelp"
+arch=('any')
+url="https://github.com/mahadevan"
+license=('MIT')
+# mhelp pages with less and points at man; the hint is only useful if that works.
+depends=('bash' 'less' 'man-db' 'man-pages')
+optdepends=('kitty: open the cheat sheet in a terminal window')
+source=("${pkgname}-assets.tar.zst")
+sha256sums=('SKIP')
+
+prepare() {
+  tar -xf "${srcdir}/${pkgname}-assets.tar.zst" -C "$srcdir"
+}
+
+package() {
+  install -d "$pkgdir/usr/share/doc/mahadevanos"
+  for doc in commands shortcuts network; do
+    install -m644 "$srcdir/learning/$doc.md" \
+      "$pkgdir/usr/share/doc/mahadevanos/$doc.md"
+  done
+
+  install -Dm755 "$srcdir/learning/mhelp" "$pkgdir/usr/bin/mhelp"
+  install -Dm755 "$srcdir/learning/mahadevanos-cheatsheet" \
+    "$pkgdir/usr/bin/mahadevanos-cheatsheet"
+
+  install -Dm644 "$srcdir/learning/10-mahadevanos-hint.sh" \
+    "$pkgdir/etc/profile.d/10-mahadevanos-hint.sh"
+
+  install -Dm644 "$srcdir/learning/mahadevanos-shortcuts.desktop" \
+    "$pkgdir/usr/share/applications/mahadevanos-shortcuts.desktop"
+  install -Dm644 "$srcdir/learning/mahadevanos-help.desktop" \
+    "$pkgdir/usr/share/applications/mahadevanos-help.desktop"
+
+  # Practice files for new accounts. /etc/skel is copied by `useradd -m`, which
+  # is what the installer's users module runs.
+  install -d "$pkgdir/etc/skel/practice/folders"
+  install -m644 "$srcdir/learning/practice/README.md" \
+    "$pkgdir/etc/skel/practice/README.md"
+  for f in notes.txt todo.txt contacts.csv; do
+    install -m644 "$srcdir/learning/practice/$f" "$pkgdir/etc/skel/practice/$f"
+  done
+  install -m644 "$srcdir/learning/practice/folders/.keep" \
+    "$pkgdir/etc/skel/practice/folders/.keep"
+  # An empty folder to practise rmdir on; git cannot carry it, so make it here.
+  install -d "$pkgdir/etc/skel/practice/empty-folder"
+
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

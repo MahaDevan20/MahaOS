@@ -1,0 +1,45 @@
+# Section<TAB>bind<TAB>action -- one line per hl.bind() in hyprland.lua.
+# scripts/gen-shortcuts.sh fails if a bind has no line here, or if a line here
+# names a bind the config no longer has, so this file cannot drift either.
+#
+# Applications
+Applications	SUPER + Q	Open the terminal (kitty)
+Applications	SUPER + Return	Open the terminal (kitty) — same as Super + Q
+Applications	SUPER + D	Open the launcher (wofi): type to search apps, Enter to run
+Applications	SUPER + E	Open Dolphin, the file manager
+Applications	SUPER + SHIFT + S	Screenshot a region you select with the mouse, copied to the clipboard
+Applications	SUPER + PRINT	Screenshot the whole screen, copied to the clipboard
+# Windows
+Windows	SUPER + C	Close the focused window
+Windows	SUPER + F	Toggle fullscreen for the focused window
+Windows	SUPER + Space	Toggle floating (a normal, movable window) for the focused window
+Windows	SUPER + P	Toggle pseudo-tiling (keep the split but tile as one window)
+Windows	SUPER + J	Swap the split direction of the focused window
+Windows	SUPER + left	Move focus to the window on the left
+Windows	SUPER + right	Move focus to the window on the right
+Windows	SUPER + up	Move focus to the window above
+Windows	SUPER + down	Move focus to the window below
+Windows	SUPER + SHIFT + left	Move the focused window to the left
+Windows	SUPER + SHIFT + right	Move the focused window to the right
+Windows	SUPER + SHIFT + up	Move the focused window up
+Windows	SUPER + SHIFT + down	Move the focused window down
+Windows	SUPER + mouse:272	Hold and drag with the left button to move a window
+Windows	SUPER + mouse:273	Hold and drag with the right button to resize a window
+# Workspaces
+Workspaces	SUPER + <loop> (focus)	Switch to workspace 1 … 10 (Super + 1 is the first, Super + 0 the tenth)
+Workspaces	SUPER + <loop> (window.move)	Move the focused window to workspace 1 … 10
+Workspaces	SUPER + mouse_down	Switch to the previous workspace (scroll down on the desktop)
+Workspaces	SUPER + mouse_up	Switch to the next workspace (scroll up on the desktop)
+# Hardware keys
+Hardware keys	XF86AudioRaiseVolume	Volume up in 5 % steps (up to 140 %)
+Hardware keys	XF86AudioLowerVolume	Volume down in 5 % steps
+Hardware keys	XF86AudioMute	Mute or unmute the sound output
+Hardware keys	XF86AudioPlay	Play or pause the current track (playerctl)
+Hardware keys	XF86AudioNext	Next track
+Hardware keys	XF86AudioPrev	Previous track
+Hardware keys	XF86MonBrightnessUp	Screen brighter (brightnessctl, needs a backlight)
+Hardware keys	XF86MonBrightnessDown	Screen dimmer (brightnessctl, needs a backlight)
+# Session
+Session	SUPER + SHIFT + L	Lock the screen (loginctl lock-session)
+Session	SUPER + SHIFT + R	Reload the Hyprland configuration after editing it
+Session	SUPER + SHIFT + Q	Exit Hyprland (log out; SDDM comes back)

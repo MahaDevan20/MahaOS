@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# mahadevanos-padboot — keep /boot readable by GRUB's btrfs driver.
+#
+# GRUB 2.16 reads a file block by block and stops at the last *whole* block: for a
+# file whose size is not a multiple of 4096 the final partial block lives in a
+# btrfs tail extent that GRUB skips, so it returns
+#   error: loader/efi/linux.c:grub_cmd_linux:700:premature end of file
+# Measured on 2026-11-22 with the grub 2:2.16-1 in this image:
+#   grub-fstest DEV cp /@/boot/vmlinuz-linux out   -> 17,244,160 of 17,244,672 bytes
+# while a copy padded to 4096 bytes was read completely (filefrag: "last,eof"
+# instead of a shared tail extent). The kernel's EFI stub and the cpio reader stop
+# at their own declared lengths, so the trailing zero padding is inert.
+#
+# Runs from two places, both installed by the mahadevanos-bootpad package:
+#   * /usr/share/libalpm/hooks/95-mahadevanos-padboot.hook  (kernel install/upgrade)
+#   * /usr/lib/initcpio/post/50-mahadevanos-padboot.sh      (every mkinitcpio run,
+#     including a manual `mkinitcpio -P`, which no pacman hook can see)
+#
+# Options:
+#   -q, --quiet     only report problems
+#   --no-grub       never regenerate grub.cfg
+#   -h, --help
+#
+# Exit status is nonzero only when a file that exists could not be aligned: a
+# kernel or initramfs GRUB cannot read is a broken machine, so the pacman hook
+# must abort the transaction rather than report success.
+set -uo pipefail
+
+BOOT_DIR="${MAHADEVANOS_BOOT_DIR:-/boot}"
+quiet=0
+grub=1
+
+for arg in "$@"; do
+  case "$arg" in
+    -q|--quiet) quiet=1 ;;
+    --no-grub) grub=0 ;;
+    -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) printf 'mahadevanos-padboot: unknown option %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
+
+say() { (( quiet )) || printf '%s\n' "$*"; }
+warn() { printf 'mahadevanos-padboot: %s\n' "$*" >&2; }
+
+shopt -s nullglob
+[[ -d "$BOOT_DIR" ]] || exit 0
+
+files=()
+for f in "$BOOT_DIR"/vmlinuz-* "$BOOT_DIR"/initramfs-*.img; do
+  [[ -f "$f" && -s "$f" ]] || continue
+  files+=("$f")
+done
+(( ${#files[@]} )) || exit 0
+
+# btrfs compresses /boot by default; NOCOW (chattr +C) keeps the extent map plain
+# and is inherited by the files that mkinitcpio and pacman write from now on. Set
+# once here so a kernel upgrade on a system installed before this package still
+# gets it. Not fatal: an unaligned file is what breaks GRUB, not compression.
+if [[ "$(findmnt -no FSTYPE -T "$BOOT_DIR" 2>/dev/null)" == btrfs ]] &&
+   command -v chattr >/dev/null 2>&1; then
+  if ! lsattr -d "$BOOT_DIR" 2>/dev/null | grep -q 'C'; then
+    chattr +C "$BOOT_DIR" 2>/dev/null && say "set +C (NOCOW) on $BOOT_DIR"
+  fi
+fi
+
+failed=0
+for f in "${files[@]}"; do
+  size="$(stat -c %s "$f")"
+  rem=$(( size % 4096 ))
+  if (( rem == 0 )); then
+    say "ok: $(basename "$f") $size bytes (aligned)"
+    continue
+  fi
+  pad=$(( 4096 - rem ))
+  # Appending (rather than rewriting) gives the file a fresh tail extent that ends
+  # exactly at EOF, which is the case GRUB reads completely.
+  if ! head -c "$pad" /dev/zero >>"$f"; then
+    warn "could not append $pad bytes to $f"
+    failed=1
+    continue
+  fi
+  sync
+  newsize="$(stat -c %s "$f")"
+  if (( newsize % 4096 != 0 )); then
+    warn "$f is $newsize bytes after padding, not a multiple of 4096"
+    failed=1
+    continue
+  fi
+  say "padded $(basename "$f") by $pad bytes to $newsize bytes (aligned)"
+done
+
+# A kernel added or removed by an upgrade needs a new menu entry. Entries refer to
+# vmlinuz-<name> paths, so an upgraded kernel keeps its entry; only a missing name
+# means grub.cfg is stale. Never fatal: the pad above is what keeps booting.
+if (( grub )) && [[ -f "$BOOT_DIR/grub/grub.cfg" ]] && command -v grub-mkconfig >/dev/null 2>&1; then
+  stale=0
+  for f in "$BOOT_DIR"/vmlinuz-*; do
+    [[ -f "$f" ]] || continue
+    grep -qsF -- "$(basename "$f")" "$BOOT_DIR/grub/grub.cfg" || stale=1
+  done
+  if (( stale )); then
+    say "regenerating $BOOT_DIR/grub/grub.cfg (a kernel is missing from it)"
+    if ! grub-mkconfig -o "$BOOT_DIR/grub/grub.cfg" >/dev/null 2>&1; then
+      warn "grub-mkconfig failed; run it by hand: grub-mkconfig -o $BOOT_DIR/grub/grub.cfg"
+    fi
+  fi
+fi
+
+(( failed == 0 )) || exit 1
+exit 0

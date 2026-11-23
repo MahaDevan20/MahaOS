@@ -32,6 +32,8 @@ GRUB_DOWN = int(os.environ.get("GRUB_DOWN", "-1"))
 # The live session needs sudo (passwordless there); an installed system must not,
 # so its checks run unprivileged.
 USE_SUDO = os.environ.get("USE_SUDO", "1") != "0"
+# Shell assignments to hand to the payload (e.g. "INSTALL_PASS='secret'").
+REMOTE_ENV = os.environ.get("REMOTE_ENV", "").strip()
 RUN_TIMEOUT = float(os.environ.get("RUN_TIMEOUT", "3600"))
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][B0]")
 
@@ -162,8 +164,9 @@ wait_prompt(60)
 
 send("printf '\\n===BEGIN payload===\\n'\n")
 wait_prompt(20)
-runner = "sudo bash" if USE_SUDO else "bash"
-send(f"{runner} /tmp/remote-payload.sh; echo PAYLOAD-EXIT:$?\n")
+runner = "sudo -E bash" if USE_SUDO else "bash"
+env_prefix = f"env {REMOTE_ENV} " if REMOTE_ENV else ""
+send(f"{env_prefix}{runner} /tmp/remote-payload.sh; echo PAYLOAD-EXIT:$?\n")
 
 deadline = time.time() + RUN_TIMEOUT
 while time.time() < deadline:

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MahaDevan's OS Shortcuts
+Name[en]=MahaDevan's OS Shortcuts
+Comment=Every keyboard shortcut, generated from the real Hyprland config
+Exec=/usr/bin/mahadevanos-cheatsheet
+Icon=/usr/share/icons/hicolor/scalable/apps/mahadevanos.svg
+Terminal=false
+Categories=System;Documentation;
+Keywords=shortcuts;keys;keybinds;cheat;help;
+StartupNotify=false

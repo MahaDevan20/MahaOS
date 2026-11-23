@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# mkinitcpio post hook — run after every image this run generated, so a manual
+# `mkinitcpio -P` is covered too (no pacman transaction happens then, so the
+# alpm hook cannot fire). Installed by mahadevanos-bootpad as
+# /usr/lib/initcpio/post/50-mahadevanos-padboot.sh; mkinitcpio runs it as root
+# with KERNELVERSION/KERNELDESTINATION in the environment and the generated paths
+# as arguments.
+#
+# A nonzero exit aborts the mkinitcpio run, which is what we want: an image GRUB
+# cannot read is worse than a visible error.
+set -uo pipefail
+
+args=(--no-grub)
+# shellcheck disable=SC2206  # the variable is a deliberately split option list
+[[ -n "${MAHADEVANOS_PADBOOT_ARGS:-}" ]] && args+=(${MAHADEVANOS_PADBOOT_ARGS})
+exec /usr/bin/mahadevanos-padboot "${args[@]}"

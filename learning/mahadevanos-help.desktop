@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MahaDevan's OS Help
+Comment=Offline help: commands, shortcuts and network (mhelp)
+Exec=/usr/bin/kitty --title "MahaDevan's OS — help" -e mhelp
+Icon=/usr/share/icons/hicolor/scalable/apps/mahadevanos.svg
+Terminal=false
+Categories=System;Documentation;
+Keywords=help;mhelp;commands;manual;documentation;
+StartupNotify=false

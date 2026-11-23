@@ -4,6 +4,7 @@
 #
 #   scripts/test-install-auto.sh --install
 #   scripts/test-install-auto.sh --boot-installed [--kernel linux|linux-lts|both]
+#   scripts/test-install-auto.sh --padboot
 #
 # --install boots the ISO with build/test-disk.qcow2 attached, logs in on the
 # serial console and runs tests/install/rehearsal.sh inside the guest. That script
@@ -18,6 +19,14 @@
 # tests/install/verify-installed.sh as the unprivileged account the install
 # created: INSTALL_USER/INSTALL_PASS (default tester/test, which is what the
 # rehearsal installs; scripts/test-install-gui.sh uses its own values).
+#
+# --padboot boots the installed disk once, runs tests/install/padboot-check.sh as
+# the installed user (which elevates itself with INSTALL_PASS, forwarded into the
+# guest through qemu-serial-run.py's REMOTE_ENV) and requires it to report PASSED: it
+# unaligns an initramfs, runs `mkinitcpio -P`, reinstalls the linux kernel with
+# pacman, and checks that the mkinitcpio post hook and the alpm hook put every
+# /boot file back on a 4096-byte boundary. Run it before --boot-installed, so the
+# two-kernel boots prove the changed system still boots.
 #
 # No real disk is reachable: the only block device with a size is the qcow2 file.
 set -euo pipefail
@@ -44,8 +53,8 @@ OVMF_VARS_SRC="${OVMF_CODE/CODE/VARS}"
 MODE="${1:-}"
 KERNELS="both"
 case "$MODE" in
-  --install|--boot-installed) shift || true ;;
-  *) die "usage: $0 --install | --boot-installed [--kernel linux|linux-lts|both]" ;;
+  --install|--boot-installed|--padboot) shift || true ;;
+  *) die "usage: $0 --install | --boot-installed [--kernel ...] | --padboot" ;;
 esac
 while (( $# )); do
   case "$1" in
@@ -145,6 +154,36 @@ case "$MODE" in
       "$SER_SOCK" "$LOG" "$PROJECT_ROOT/tests/install/rehearsal.sh" "$SUMMARY" || STATUS=$?
     log "install exit status: $STATUS (evidence: $LOG)"
     exit "$STATUS"
+    ;;
+
+  --padboot)
+    [[ -f "$DISK" ]] || die "$DISK does not exist; run --install or the GUI test first"
+    log "booting $DISK without the ISO to exercise the /boot alignment hooks"
+    rm -f "$MON_SOCK" "$SER_SOCK" "$PIDFILE"
+    start_vm
+
+    PAD_LOG="$EVIDENCE_DIR/padboot-check-$(date +%Y%m%d-%H%M%S).log"
+    PAD_SUMMARY="${PAD_LOG%.log}.txt"
+    : >"$PAD_LOG"
+    pad_status=0
+    pass="${INSTALL_PASS:-test}"
+    GRUB_DOWN=0 LIVE_USER="${INSTALL_USER:-tester}" LIVE_PASS="$pass" \
+      USE_SUDO=0 REMOTE_ENV="INSTALL_PASS='$pass'" \
+      LOGIN_TIMEOUT=300 RUN_TIMEOUT=1800 \
+      python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
+      "$SER_SOCK" "$PAD_LOG" "$PROJECT_ROOT/tests/install/padboot-check.sh" "$PAD_SUMMARY" \
+      || pad_status=$?
+    stop_vm
+
+    if [[ -f "$PAD_SUMMARY" ]]; then
+      sed -n '1,200p' "$PAD_SUMMARY" | tee -a "$PAD_LOG" >&2
+    fi
+    if (( pad_status != 0 )) || ! grep -q 'PADBOOT RESULT: PASSED' "$PAD_SUMMARY" 2>/dev/null; then
+      warn "the /boot alignment check failed (evidence: $PAD_LOG)"
+      exit 1
+    fi
+    log "the /boot alignment hooks work on the installed system (evidence: $PAD_LOG)"
+    exit 0
     ;;
 
   --boot-installed)

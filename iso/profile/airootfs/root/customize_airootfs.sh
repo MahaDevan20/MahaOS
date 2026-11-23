@@ -32,3 +32,13 @@ for vmlinuz in /boot/vmlinuz-*; do
   install -m 644 "$vmlinuz" /usr/lib/mahadevanos/kernel/
   echo ":: [mahadevanos] kept $(basename "$vmlinuz") for the installed system"
 done
+
+# The live account gets the same practice folder a new user gets from /etc/skel
+# (mahadevanos-learning). Only that folder: liveuser's own hyprland.lua must not
+# be replaced by the skel copy, which does not start the installer.
+if [[ -d /etc/skel/practice ]]; then
+  rm -rf /home/liveuser/practice
+  cp -a /etc/skel/practice /home/liveuser/practice
+  chown -R 1000:1000 /home/liveuser/practice
+  echo ":: [mahadevanos] practice files placed in /home/liveuser/practice"
+fi

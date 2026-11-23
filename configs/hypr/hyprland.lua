@@ -165,6 +165,10 @@ hl.bind(mod .. " + SHIFT + S", hl.dsp.exec_cmd("grim -g \"$(slurp)\" - | wl-copy
 hl.bind(mod .. " + PRINT",     hl.dsp.exec_cmd("grim - | wl-copy"))
 hl.bind(mod .. " + SHIFT + L", hl.dsp.exec_cmd("loginctl lock-session"))
 
+-- Reload after editing this file: the tray/lock/screenshot binds above are the
+-- ones people tune first, and a typo must be recoverable without a logout.
+hl.bind(mod .. " + SHIFT + R", hl.dsp.reload_config())
+
 --------------------
 ---- AUTOSTART   ----
 --------------------

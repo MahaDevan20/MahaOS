@@ -33,6 +33,11 @@ if [[ $EUID -eq 0 ]]; then
 fi
 require makepkg repo-add
 
+# Generated documentation is rebuilt from its source of truth before packaging:
+# learning/shortcuts.md comes from configs/hypr/hyprland.lua, which the generator
+# refuses to document incompletely (see scripts/gen-shortcuts.sh).
+"$PROJECT_ROOT/scripts/gen-shortcuts.sh"
+
 CHROOT_BUILD=""
 for candidate in extra-x86_64-build core-x86_64-build; do
   if command -v "$candidate" >/dev/null 2>&1; then

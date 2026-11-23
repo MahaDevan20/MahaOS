@@ -1,0 +1,5 @@
+buy bread
+buy milk
+read mhelp commands
+try ls -l in ~/practice
+learn what chmod +x does

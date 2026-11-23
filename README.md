@@ -23,7 +23,8 @@ Honest labels only: `TESTED`, `IMPLEMENTED (untested)`, `EXPERIMENTAL`, `PLANNED
 | M1 | Bootable minimal live ISO | `TESTED` — `out/mahadevanos-2026.11.21-x86_64.iso` boots under UEFI QEMU (OVMF, 4 GiB) to SDDM → Hyprland as `liveuser`, and the **safe graphics** entry boots too; evidence in `tests/evidence/2026-11-21/` |
 | M2 | Calamares offline installer + minimal desktop | `TESTED` for live autostart, the offline install pipeline (one 1024 MiB ESP + one Btrfs root, `@`/`@home`/`@log`/`@cache`/`@snapshots`, pre-unpackfs root-mount guard) and the installed-system boot (`scripts/test-boot.sh --disk`, `scripts/test-install-auto.sh`); the hand-clicked Calamares GUI walkthrough is still `IMPLEMENTED (untested)` |
 | M3 | Btrfs snapshots and recovery | `IMPLEMENTED (untested)` |
-| M4 | Desktop experience and branding | `PLANNED` (Hyprland config stub only) |
+| M4 | Desktop experience and branding | `TESTED` for the shipped Lua config, `Super + Q`, the offline help files (`mhelp`), the generated shortcut sheet and the practice folder; deeper theming is still `PLANNED` |
+| M4a | Learning material for new users | `TESTED` — three offline guides, `mhelp`, the terminal hint, `/etc/skel/practice` and the cheat-sheet launcher, all shipped by `mahadevanos-learning` |
 | M5 | Hardware detection, profiles, optional LUKS | `EXPERIMENTAL` (`profiles/`, `installer/postinstall/60-hardware-detect.sh`) |
 
 The installer is verified by `scripts/test-install-auto.sh --install`, which now
@@ -83,14 +84,44 @@ iso/profile/   archiso profile (profiledef.sh, pacman.conf, airootfs/, efiboot/)
 iso/packages/  split package lists: base.txt desktop.txt live-only.txt firmware.txt
 iso/checks/    repo-origin and manifest checks
 installer/     Calamares settings/modules/branding + post-install shellprocess scripts
-packaging/     PKGBUILDs for mahadevanos-branding, calamares-config, mahadevanos-settings
+packaging/     PKGBUILDs: mahadevanos-branding, -settings, -learning, -bootpad,
+               calamares-config
 repo/          local pacman repo (binaries gitignored, PKGBUILDs tracked)
-configs/       hyprland, kitty, dolphin, sddm, snapper, grub, ufw, quickshell
+configs/       hyprland, kitty, dolphin, sddm, snapper, grub, ufw, quickshell, bootpad
+learning/      the offline guides, mhelp, the terminal hint and the practice files
 profiles/      post-install profiles: gaming, dev, virtualization, ai
 scripts/       build-repo.sh, build-iso.sh, test-boot.sh, test-install.sh, checksum.sh
 tests/         automation + evidence/
 documentation/ build, install, recovery, architecture, known issues
 ```
+
+## Learning material and shortcuts
+
+Everything a new user needs to find their way is **offline**, shipped by two
+packages built into `repo/` — nothing is copied into the ISO by hand:
+
+| What | Where | Shipped by |
+|---|---|---|
+| Beginner command guide (navigating, files, finding, permissions, packages, disks, network, snapshots, safety) | `/usr/share/doc/mahadevanos/commands.md` | `mahadevanos-learning` |
+| Every keyboard shortcut, **generated** from `configs/hypr/hyprland.lua` | `/usr/share/doc/mahadevanos/shortcuts.md` | `mahadevanos-learning` |
+| Network guide (Ethernet, Wi-Fi applet, `nmcli`, `nmtui`, hidden networks, static IP, troubleshooting) | `/usr/share/doc/mahadevanos/network.md` | `mahadevanos-learning` |
+| `mhelp` — `mhelp commands`, `mhelp keys`, `mhelp network`, `mhelp <word>` | `/usr/bin/mhelp` | `mahadevanos-learning` |
+| One-line hint the first time a terminal opens ("Type mhelp for commands, shortcuts and network help") | `/etc/profile.d/10-mahadevanos-hint.sh` | `mahadevanos-learning` |
+| Practice folder with sample files and a README, for every new account | `/etc/skel/practice/` (and `~/practice`) | `mahadevanos-learning` |
+| Cheat-sheet and Help launcher entries (reachable from wofi, `Super + D`) | `/usr/share/applications/mahadevanos-{shortcuts,help}.desktop` | `mahadevanos-learning` |
+| Man pages (`man ls`, `man pacman`) | — | `man-db`, `man-pages` in `iso/packages/desktop.txt` |
+| `/boot` padding after every kernel upgrade and every `mkinitcpio` run | `/usr/bin/mahadevanos-padboot`, an alpm hook and a mkinitcpio post hook | `mahadevanos-bootpad` |
+
+`shortcuts.md` is not written by hand. `scripts/gen-shortcuts.sh` reads the
+`hl.bind(...)` calls of the compositor config and the descriptions in
+`configs/hypr/shortcuts.tsv`, and **fails** if a bind has no description or a
+description has no bind — so the sheet cannot drift from what the desktop does.
+`scripts/build-repo.sh` regenerates it before packaging and
+`tests/docs/check-learning.sh` fails if the committed copy is stale.
+
+See [documentation/learning-files.md](documentation/learning-files.md) for the
+details and [documentation/keybindings.md](documentation/keybindings.md) for the
+shortcut table.
 
 ## Rules that matter
 
@@ -107,6 +138,7 @@ documentation/ build, install, recovery, architecture, known issues
 - [Host check](documentation/development/host-check.md)
 - [Architecture](documentation/architecture.md)
 - [Manual install test](documentation/installation/manual-test.md)
+- [Learning files and shortcuts](documentation/learning-files.md)
 - [Snapshot rollback and GRUB repair](documentation/recovery/snapshot-rollback.md)
 - [Known issues](documentation/known-issues.md)
 

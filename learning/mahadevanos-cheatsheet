@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Open the shortcut cheat sheet in a terminal window.
+#
+# Launcher entry: /usr/share/applications/mahadevanos-shortcuts.desktop, so it
+# is reachable from wofi (Super + D) in the live session and on an installed
+# system alike. Falls back to any configured handler when kitty is missing.
+set -euo pipefail
+
+doc="${MAHADEVANOS_DOCS:-/usr/share/doc/mahadevanos}/shortcuts.md"
+[[ -r "$doc" ]] || { printf 'missing %s\n' "$doc" >&2; exit 1; }
+
+if command -v kitty >/dev/null 2>&1; then
+  exec kitty --title "MahaDevan's OS — shortcuts" -e less -R "$doc"
+fi
+if command -v xdg-open >/dev/null 2>&1; then
+  exec xdg-open "$doc"
+fi
+exec less -R "$doc"

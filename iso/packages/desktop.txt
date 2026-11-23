@@ -32,6 +32,9 @@ blueman
 bluez
 bluez-utils
 
+# locate(1) for the command guide's "find things" section
+plocate
+
 # Files, terminal, theming
 dolphin
 kio-extras
@@ -65,6 +68,17 @@ gvfs
 gvfs-mtp
 xdg-user-dirs
 accountsservice
+
+# Backlight and media keys bound in configs/hypr/hyprland.lua
+brightnessctl
+playerctl
+
+# Help that must work without a network: mhelp and the three guides, the
+# terminal hint, the /etc/skel practice folder and the cheat-sheet launcher.
+mahadevanos-learning
+# Aligns /boot after every kernel upgrade and every mkinitcpio run (GRUB 2.16
+# skips a btrfs tail extent, see documentation/known-issues.md).
+mahadevanos-bootpad
 
 # Project packages built into repo/ by scripts/build-repo.sh
 mahadevanos-branding

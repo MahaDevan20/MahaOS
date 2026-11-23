@@ -605,6 +605,31 @@ chroot /mnt /bin/bash -c '
   [ -e /etc/sddm.conf.d/10-live-autologin.conf ] && { echo "FAIL live autologin"; rc=1; } || echo "ok: no live autologin"
   [ -f /etc/xdg/hypr/hyprland.lua ] && echo "ok: installed hyprland.lua present" || { echo "FAIL hyprland.lua missing"; rc=1; }
   grep -rqsE "mahadevanos-installer|calamares" /etc/skel /etc/xdg/hypr && { echo "FAIL skel/xdg references installer"; rc=1; } || echo "ok: no installer reference in skel/xdg"
+  # Learning material and the /boot alignment package, shipped by packages.
+  for doc in commands shortcuts network; do
+    [ -s "/usr/share/doc/mahadevanos/$doc.md" ] \
+      && echo "ok: /usr/share/doc/mahadevanos/$doc.md installed" \
+      || { echo "FAIL /usr/share/doc/mahadevanos/$doc.md missing"; rc=1; }
+  done
+  [ -x /usr/bin/mhelp ] && echo "ok: mhelp installed" || { echo "FAIL mhelp missing"; rc=1; }
+  mhelp_out="$(MAHADEVANOS_DOCS=/usr/share/doc/mahadevanos /usr/bin/mhelp network 2>/dev/null)"
+  grep -q 'NetworkManager' <<<"$mhelp_out" \
+    && echo "ok: mhelp network works offline in the target" \
+    || { echo "FAIL mhelp network produced nothing"; rc=1; }
+  [ -s /etc/skel/practice/README.md ] && echo "ok: /etc/skel/practice installed" \
+    || { echo "FAIL /etc/skel/practice/README.md missing"; rc=1; }
+  [ -f /etc/profile.d/10-mahadevanos-hint.sh ] && echo "ok: terminal hint installed" \
+    || { echo "FAIL terminal hint missing"; rc=1; }
+  [ -f /usr/share/libalpm/hooks/95-mahadevanos-padboot.hook ] \
+    && [ -x /usr/lib/initcpio/post/50-mahadevanos-padboot.sh ] \
+    && echo "ok: /boot padding hooks installed" \
+    || { echo "FAIL /boot padding hooks missing"; rc=1; }
+  grep -qE "\+ Q\".*exec_cmd" /etc/xdg/hypr/hyprland.lua \
+    && grep -qE "local mod[[:space:]]*=[[:space:]]*SUPER" /etc/xdg/hypr/hyprland.lua \
+    && echo "ok: hyprland.lua binds Super+Q" \
+    || { echo "FAIL hyprland.lua has no Super+Q bind"; rc=1; }
+  command -v dolphin >/dev/null && echo "ok: dolphin present in the target" \
+    || { echo "FAIL dolphin missing from the target"; rc=1; }
   exit $rc
 '
 

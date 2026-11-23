@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = boot/vmlinuz-*
+
+[Action]
+Description = Aligning /boot kernel images for GRUB (btrfs tail extents)...
+When = PostTransaction
+Exec = /usr/bin/mahadevanos-padboot

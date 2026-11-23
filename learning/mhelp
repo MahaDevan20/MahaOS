@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# mhelp — MahaDevan's OS help, entirely offline.
+#
+#   mhelp                 short index of what is available
+#   mhelp commands        Linux commands for beginners
+#   mhelp keys            every keyboard shortcut
+#   mhelp network         getting on a network
+#   mhelp <word>          search all three pages for <word>
+#
+# The pages are plain Markdown in /usr/share/doc/mahadevanos, shipped by the
+# mahadevanos-learning package. Nothing here needs a network connection.
+set -uo pipefail
+
+DOCS="${MAHADEVANOS_DOCS:-/usr/share/doc/mahadevanos}"
+
+page_for() {
+  case "$1" in
+    commands|command|cmd|terminal) printf 'commands.md' ;;
+    keys|key|shortcuts|shortcut|hotkeys) printf 'shortcuts.md' ;;
+    network|net|wifi|wi-fi|internet) printf 'network.md' ;;
+    *) return 1 ;;
+  esac
+}
+
+show() {
+  local file="$DOCS/$1"
+  if [[ ! -r "$file" ]]; then
+    printf 'mhelp: %s is missing; reinstall the mahadevanos-learning package\n' "$file" >&2
+    return 1
+  fi
+  if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
+    LESS='-R' less "$file"
+  else
+    cat "$file"
+  fi
+}
+
+index() {
+  cat <<'EOF'
+MahaDevan's OS help — everything below is offline.
+
+  mhelp commands    Linux commands for beginners: one line and one example each
+  mhelp keys        every keyboard shortcut (Super is the Windows key)
+  mhelp network     Ethernet, Wi-Fi, hidden networks, static IP, troubleshooting
+  mhelp <word>      search all three pages, e.g. "mhelp wifi" or "mhelp pacman"
+
+Read a page in the pager: Space = next page, q = quit.
+More: man <command> (man pages are installed), and the practice folder in your
+home directory for files that are safe to experiment on.
+EOF
+}
+
+search() {
+  local word="$1" file found=0
+  for file in commands.md shortcuts.md network.md; do
+    [[ -r "$DOCS/$file" ]] || continue
+    if grep -in -- "$word" "$DOCS/$file" >/dev/null 2>&1; then
+      found=1
+      printf '=== %s ===\n' "$file"
+      grep -in --color=auto -C1 -- "$word" "$DOCS/$file"
+      printf '\n'
+    fi
+  done
+  if (( found == 0 )); then
+    printf 'mhelp: nothing found for "%s" in commands, shortcuts or network.\n' "$word" >&2
+    printf 'Try "mhelp" for the index, or "mhelp commands" to read the guide.\n' >&2
+    return 1
+  fi
+}
+
+case "${1:-}" in
+  ""|-h|--help|help|index)
+    index
+    ;;
+  *)
+    if file="$(page_for "$1")"; then
+      show "$file"
+    else
+      shift 0
+      search "$*"
+    fi
+    ;;
+esac

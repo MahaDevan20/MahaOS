@@ -1,0 +1,43 @@
+# Maintainer: MahaDevan
+# Keeps /boot readable by GRUB 2.16 on btrfs: every kernel/initramfs must be a
+# multiple of 4096 bytes, otherwise GRUB skips the file's btrfs tail extent and
+# fails with "error: ...grub_cmd_linux:700:premature end of file".
+#
+# Two triggers, because either one alone leaves a hole:
+#   * a pacman hook  - fires when a kernel package is installed or upgraded;
+#   * a mkinitcpio post hook - fires after every image mkinitcpio writes,
+#     including a manual `mkinitcpio -P` that no pacman hook can see.
+pkgname=mahadevanos-bootpad
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Align /boot kernel and initramfs images for GRUB's btrfs block reader"
+arch=('any')
+url="https://github.com/mahadevan"
+license=('MIT')
+depends=('bash')
+# Only needed when the file is padded or grub.cfg has to be regenerated; the
+# script skips each step when the tool is absent.
+optdepends=(
+  'grub: regenerate grub.cfg when a kernel is missing from it'
+  'btrfs-progs: report the filesystem type of /boot'
+  'e2fsprogs: chattr, to keep /boot uncompressed (NOCOW)'
+)
+source=("${pkgname}-assets.tar.zst")
+sha256sums=('SKIP')
+
+prepare() {
+  tar -xf "${srcdir}/${pkgname}-assets.tar.zst" -C "$srcdir"
+}
+
+package() {
+  install -Dm755 "$srcdir/scripts/mahadevanos-padboot" \
+    "$pkgdir/usr/bin/mahadevanos-padboot"
+
+  install -Dm644 "$srcdir/configs/bootpad/95-mahadevanos-padboot.hook" \
+    "$pkgdir/usr/share/libalpm/hooks/95-mahadevanos-padboot.hook"
+
+  install -Dm755 "$srcdir/configs/bootpad/50-mahadevanos-padboot.post" \
+    "$pkgdir/usr/lib/initcpio/post/50-mahadevanos-padboot.sh"
+
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

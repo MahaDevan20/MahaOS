@@ -94,6 +94,69 @@ else
   fail "/boot/efi is not a mount point"
 fi
 
+echo "--- learning material, offline (mahadevanos-learning)"
+for doc in commands shortcuts network; do
+  f="/usr/share/doc/mahadevanos/$doc.md"
+  if [[ -s "$f" ]]; then ok "$f ($(wc -c <"$f") bytes)"; else fail "$f is missing"; fi
+done
+if [[ -x /usr/bin/mhelp ]]; then
+  mhelp_commands="$(mhelp commands 2>&1)"
+  grep -q 'Linux commands for beginners' <<<"$mhelp_commands" \
+    && ok "mhelp commands prints the guide" || fail "mhelp commands printed nothing"
+  mhelp_keys="$(mhelp keys 2>&1)"
+  grep -q 'Super is the Windows key' <<<"$mhelp_keys" \
+    && ok "mhelp keys prints the shortcut sheet" || fail "mhelp keys printed nothing"
+  grep -qi 'SUPER + Q' <<<"$mhelp_keys" \
+    && ok "the shortcut sheet documents Super + Q" || fail "Super + Q missing from the sheet"
+  mhelp_net="$(mhelp network 2>&1)"
+  grep -q 'nmcli device wifi connect' <<<"$mhelp_net" \
+    && ok "mhelp network prints the network guide" || fail "mhelp network printed nothing"
+  mhelp_hit="$(mhelp 'pacman' 2>&1)"
+  grep -q 'pacman -Syu' <<<"$mhelp_hit" && ok "mhelp <word> searches all pages" || fail "mhelp search found nothing"
+  if mhelp zzzznotaword >/dev/null 2>&1; then fail "mhelp exits 0 when nothing matches"; else ok "mhelp reports a miss"; fi
+else
+  fail "/usr/bin/mhelp is missing"
+fi
+for entry in mahadevanos-shortcuts mahadevanos-help; do
+  [[ -f "/usr/share/applications/$entry.desktop" ]] \
+    && ok "$entry.desktop installed" || fail "$entry.desktop missing"
+done
+
+echo "--- practice folder for this account (from /etc/skel)"
+if [[ -d "$HOME/practice" ]]; then
+  ok "$HOME/practice exists"
+  for f in README.md notes.txt todo.txt contacts.csv; do
+    [[ -s "$HOME/practice/$f" ]] && ok "practice/$f present" || fail "practice/$f missing"
+  done
+else
+  fail "$HOME/practice is missing: /etc/skel/practice did not reach a new account"
+fi
+[[ -s /etc/skel/practice/README.md ]] && ok "/etc/skel/practice/README.md present" || fail "/etc/skel/practice missing"
+
+echo "--- terminal hint and man pages"
+[[ -f /etc/profile.d/10-mahadevanos-hint.sh ]] && ok "hint installed in /etc/profile.d" || fail "hint missing"
+if man -w ls >/dev/null 2>&1; then ok "man page for ls found ($(man -w ls))"; else fail "man-db/man-pages not working"; fi
+grep -q 'Type mhelp for commands, shortcuts and network help.' /etc/profile.d/10-mahadevanos-hint.sh \
+  && ok "hint text is the expected one-liner" || fail "hint text changed"
+
+echo "--- Dolphin stays the file manager"
+if command -v dolphin >/dev/null 2>&1; then ok "dolphin binary present"; else fail "dolphin is missing"; fi
+pacman -Q dolphin >/dev/null 2>&1 && ok "dolphin package installed" || fail "dolphin package not installed"
+[[ -f /usr/share/applications/org.kde.dolphin.desktop ]] && ok "dolphin launcher entry present" \
+  || echo "note: org.kde.dolphin.desktop not found under /usr/share/applications"
+
+echo "--- /boot alignment package"
+[[ -x /usr/bin/mahadevanos-padboot ]] && ok "mahadevanos-padboot installed" || fail "mahadevanos-padboot missing"
+[[ -f /usr/share/libalpm/hooks/95-mahadevanos-padboot.hook ]] \
+  && ok "pacman hook installed" || fail "pacman hook missing"
+[[ -x /usr/lib/initcpio/post/50-mahadevanos-padboot.sh ]] \
+  && ok "mkinitcpio post hook installed" || fail "mkinitcpio post hook missing"
+for f in /boot/vmlinuz-* /boot/initramfs-*.img; do
+  [[ -f "$f" ]] || continue
+  fs=$(stat -c %s "$f")
+  if (( fs % 4096 == 0 )); then ok "$(basename "$f") is $fs bytes (aligned)"; else fail "$(basename "$f") is $fs bytes, not 4096-aligned"; fi
+done
+
 # No live-only leftovers from the installer, either.
 [ ! -e /usr/lib/mahadevanos ] && ok "no /usr/lib/mahadevanos kernel stash" || fail "kernel stash left behind"
 

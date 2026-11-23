@@ -1,0 +1,13 @@
+# Practice notes — edit me with nano, read me with cat or less.
+
+MahaDevan's OS is an Arch-based system, installed offline from the USB stick.
+Open a terminal with Super + Q, and ask for help with mhelp.
+
+Things I want to learn:
+- how to copy a folder (hint: cp -r)
+- what grep does with a pattern
+- where my snapshots live (hint: sudo snapper -c root list)
+
+A line with the word milk in it, for grep practice.
+A line without it.
+Another line about bread.
