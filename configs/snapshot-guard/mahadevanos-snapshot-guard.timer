@@ -1,0 +1,16 @@
+[Unit]
+Description=Protect the last known-good Btrfs snapshot (boot and hourly)
+Documentation=man:snapper(8)
+
+[Timer]
+# Five minutes after boot: a fresh boot has no anchor yet if the previous one was
+# deleted while the machine was off. Then hourly, which is the interval of
+# snapper-cleanup.timer, so an upgrade's snapshot is protected before the cleanup
+# pass that follows it.
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

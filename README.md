@@ -139,7 +139,8 @@ shortcut table.
 - [Architecture](documentation/architecture.md)
 - [Manual install test](documentation/installation/manual-test.md)
 - [Learning files and shortcuts](documentation/learning-files.md)
-- [Snapshot rollback and GRUB repair](documentation/recovery/snapshot-rollback.md)
+- [Snapshots and recovery](documentation/recovery/README.md): booting a snapshot,
+  rolling back, repairing GRUB from the live USB
 - [Known issues](documentation/known-issues.md)
 
 ## License

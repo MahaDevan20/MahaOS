@@ -3,12 +3,14 @@
 # ~/.config always wins, and /etc/skel gets a copy for newly created accounts.
 pkgname=mahadevanos-settings
 pkgver=0.1.0
-pkgrel=1
-pkgdesc="Hyprland, Kitty, Dolphin and snapper defaults for MahaDevan's OS"
+pkgrel=4
+pkgdesc="Hyprland, Kitty, Dolphin, snapper and snapshot-retention defaults for MahaDevan's OS"
 arch=('any')
 url="https://github.com/mahadevan"
 license=('MIT')
-depends=('hyprland' 'kitty' 'dolphin' 'snapper')
+# snapper + btrfs-progs are what the snapshot guard and the snapper config work
+# with; systemd provides the timer it ships.
+depends=('hyprland' 'kitty' 'dolphin' 'snapper' 'btrfs-progs' 'systemd')
 source=("${pkgname}-assets.tar.zst")
 sha256sums=('SKIP')
 
@@ -31,6 +33,16 @@ package() {
     "$pkgdir/etc/skel/.config/hypr/hyprland.lua"
   install -Dm644 "$srcdir/configs/kitty/kitty.conf" \
     "$pkgdir/etc/skel/.config/kitty/kitty.conf"
+
+  # Snapshot retention guard: keeps exactly one snapshot marked important so
+  # snapper's cleanup can never delete the last known-good state. Run by its own
+  # timer and once at the end of the install (40-snapshots.sh).
+  install -Dm755 "$srcdir/scripts/mahadevanos-snapshot-guard" \
+    "$pkgdir/usr/bin/mahadevanos-snapshot-guard"
+  install -Dm644 "$srcdir/configs/snapshot-guard/mahadevanos-snapshot-guard.service" \
+    "$pkgdir/usr/lib/systemd/system/mahadevanos-snapshot-guard.service"
+  install -Dm644 "$srcdir/configs/snapshot-guard/mahadevanos-snapshot-guard.timer" \
+    "$pkgdir/usr/lib/systemd/system/mahadevanos-snapshot-guard.timer"
 
   install -Dm644 "$srcdir/configs/quickshell/README.md" \
     "$pkgdir/usr/share/doc/mahadevanos/quickshell.md"

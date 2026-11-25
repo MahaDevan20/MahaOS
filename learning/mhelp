@@ -5,7 +5,8 @@
 #   mhelp commands        Linux commands for beginners
 #   mhelp keys            every keyboard shortcut
 #   mhelp network         getting on a network
-#   mhelp <word>          search all three pages for <word>
+#   mhelp recovery        snapshots, rollback and repairing GRUB
+#   mhelp <word>          search all four pages for <word>
 #
 # The pages are plain Markdown in /usr/share/doc/mahadevanos, shipped by the
 # mahadevanos-learning package. Nothing here needs a network connection.
@@ -18,6 +19,8 @@ page_for() {
     commands|command|cmd|terminal) printf 'commands.md' ;;
     keys|key|shortcuts|shortcut|hotkeys) printf 'shortcuts.md' ;;
     network|net|wifi|wi-fi|internet) printf 'network.md' ;;
+    recovery|recover|snapshot|snapshots|snapper|rollback|roll-back|restore|grub)
+      printf 'recovery.md' ;;
     *) return 1 ;;
   esac
 }
@@ -42,7 +45,8 @@ MahaDevan's OS help — everything below is offline.
   mhelp commands    Linux commands for beginners: one line and one example each
   mhelp keys        every keyboard shortcut (Super is the Windows key)
   mhelp network     Ethernet, Wi-Fi, hidden networks, static IP, troubleshooting
-  mhelp <word>      search all three pages, e.g. "mhelp wifi" or "mhelp pacman"
+  mhelp recovery    snapshots: seeing them, booting one, rollback, GRUB repair
+  mhelp <word>      search all four pages, e.g. "mhelp wifi" or "mhelp pacman"
 
 Read a page in the pager: Space = next page, q = quit.
 More: man <command> (man pages are installed), and the practice folder in your
@@ -52,7 +56,7 @@ EOF
 
 search() {
   local word="$1" file found=0
-  for file in commands.md shortcuts.md network.md; do
+  for file in commands.md shortcuts.md network.md recovery.md; do
     [[ -r "$DOCS/$file" ]] || continue
     if grep -in -- "$word" "$DOCS/$file" >/dev/null 2>&1; then
       found=1
@@ -62,7 +66,7 @@ search() {
     fi
   done
   if (( found == 0 )); then
-    printf 'mhelp: nothing found for "%s" in commands, shortcuts or network.\n' "$word" >&2
+    printf 'mhelp: nothing found for "%s" in commands, shortcuts, network or recovery.\n' "$word" >&2
     printf 'Try "mhelp" for the index, or "mhelp commands" to read the guide.\n' >&2
     return 1
   fi

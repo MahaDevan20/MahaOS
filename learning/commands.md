@@ -110,11 +110,18 @@ The step-by-step version of all of this is `mhelp network`.
 | `snapper create` | Take a snapshot right now, before a risky change. | `sudo snapper -c root create --description 'before upgrade'` |
 | `snapper undochange` | Revert the files that differ between two snapshots. | `sudo snapper -c root undochange 12..13` |
 | `snapper delete` | Delete a snapshot by number. | `sudo snapper -c root delete 12` |
+| `snapper status` | Which files differ between two snapshots. | `sudo snapper -c root status 12..13` |
+| `snapper diff` | The actual changes in those files. | `sudo snapper -c root diff 12..13` |
+| `snapper rollback` | Make a snapshot the system again (run it *from* the booted snapshot). | `sudo snapper -c root rollback 14` |
+| `btrfs subvolume list` | Show the subvolumes and snapshots on the disk. | `sudo btrfs subvolume list /` |
 | `btrfs filesystem usage` | How full the Btrfs filesystem really is. | `sudo btrfs filesystem usage /` |
+| `mhelp recovery` | The beginner page for exactly this: boot a snapshot, roll back. | `mhelp recovery` |
 
 Snapshots are taken automatically before and after every `pacman` transaction
-(the `snap-pac` package), so there is usually one to go back to. The graphical
-way is **Btrfs Assistant** in the launcher (`Super + D`).
+(the `snap-pac` package), so there is usually one to go back to. A snapshot is
+bootable from the **Snapshots** submenu of the GRUB menu. The graphical way is
+**Btrfs Assistant** in the launcher (`Super + D`). `mhelp recovery` has the
+step-by-step version.
 
 ## Safety: read this before typing
 

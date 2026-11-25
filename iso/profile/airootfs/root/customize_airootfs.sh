@@ -21,6 +21,22 @@ install -m644 "$defaults/os-release" /etc/os-release
 
 echo ":: [mahadevanos] live system branded"
 
+# snap-pac's pacman hooks are AbortOnFail, and the live root is a read-only
+# squashfs under an overlay: a pacman transaction in the live session would ask
+# snapper to snapshot a root it cannot snapshot, the hook would fail, and pacman
+# would abort. Keep snap-pac inert in the live session only. The installer
+# rewrites this file for the target (installer/postinstall/40-snapshots.sh, which
+# runs before 99-cleanup removes the installer packages), where / is the real @
+# subvolume.
+{
+  echo '# Live session only: the squashfs root cannot be snapshotted.'
+  echo '# The installed system replaces this file (postinstall/40-snapshots.sh).'
+  echo '[root]'
+  echo 'snapshot = False'
+} >/etc/snap-pac.ini
+chmod 644 /etc/snap-pac.ini
+echo ":: [mahadevanos] snap-pac disabled in the live session"
+
 # mkarchiso deletes the contents of /boot right before it builds the squashfs
 # (_cleanup_pacstrap_dir), so the airootfs the installer unpacks onto the target
 # has no kernel. The kernel packages are installed and their modules are in

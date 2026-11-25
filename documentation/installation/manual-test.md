@@ -71,7 +71,7 @@ it. In the VM's firmware, confirm UEFI/OVMF is used (no legacy BIOS entry).
 - [ ] `sudo pacman -S htop` creates pre/post snapshots (`sudo snapper list`)
 - [ ] Reboot: GRUB shows a **Snapshots** submenu listing them
 - [ ] Boot a snapshot read-only, verify the system reaches a usable state
-- [ ] Roll back per `documentation/recovery/snapshot-rollback.md` and confirm the
+- [ ] Roll back per `documentation/recovery/rollback.md` and confirm the
       system boots normally again
 
 ## Report

@@ -5,6 +5,8 @@
 #   scripts/test-install-auto.sh --install
 #   scripts/test-install-auto.sh --boot-installed [--kernel linux|linux-lts|both]
 #   scripts/test-install-auto.sh --padboot
+#   scripts/test-install-auto.sh --snapshots
+#   scripts/test-install-auto.sh --snapshot-boot
 #
 # --install boots the ISO with build/test-disk.qcow2 attached, logs in on the
 # serial console and runs tests/install/rehearsal.sh inside the guest. That script
@@ -27,6 +29,20 @@
 # pacman, and checks that the mkinitcpio post hook and the alpm hook put every
 # /boot file back on a 4096-byte boundary. Run it before --boot-installed, so the
 # two-kernel boots prove the changed system still boots.
+#
+# --snapshots runs tests/install/snapshots-check.sh on the installed disk (phase A):
+# it upgrades the kernel and installs a test package to prove snap-pac brackets every
+# transaction, checks the snapper retention limits and the anchor snapshot, audits the
+# GRUB Snapshots submenu and the >= 3s timeout, then deletes /usr/bin/kitty and powers
+# off. It prints the GRUB navigation to that snapshot, which this script stores in
+# build/snapshot-boot-plan.
+#
+# --snapshot-boot reads that plan, boots the snapshot from the submenu over the serial
+# console and runs tests/install/snapshot-boot-check.sh (phase B): overlay root, the
+# snapshot still read-only and intact, then the documented manual rollback
+# (@ -> @.broken, @snapshots/<N>/snapshot -> @, chroot, mkinitcpio -P, grub-mkconfig).
+# Follow it with --boot-installed --kernel both, which is what proves both kernels
+# boot a rolled-back system.
 #
 # No real disk is reachable: the only block device with a size is the qcow2 file.
 set -euo pipefail
@@ -52,9 +68,10 @@ OVMF_VARS_SRC="${OVMF_CODE/CODE/VARS}"
 
 MODE="${1:-}"
 KERNELS="both"
+PLAN_FILE="$BUILD_DIR/snapshot-boot-plan"
 case "$MODE" in
-  --install|--boot-installed|--padboot) shift || true ;;
-  *) die "usage: $0 --install | --boot-installed [--kernel ...] | --padboot" ;;
+  --install|--boot-installed|--padboot|--snapshots|--snapshot-boot) shift || true ;;
+  *) die "usage: $0 --install | --boot-installed [--kernel ...] | --padboot | --snapshots | --snapshot-boot" ;;
 esac
 while (( $# )); do
   case "$1" in
@@ -106,6 +123,26 @@ stop_vm() {
     rm -f "$PIDFILE"
   fi
   sleep 1
+}
+
+# The snapshot phases power the guest off on purpose (a clean btrfs shutdown before
+# the next phase reads or rewrites the disk), a few seconds after their payload
+# exits. Wait for the VM to go away instead of pulling the virtual plug.
+wait_guest_poweroff() {
+  local pid timeout="${1:-180}" waited=0
+  [[ -f "$PIDFILE" ]] || return 0
+  pid="$(cat "$PIDFILE")"
+  while (( waited < timeout )) && kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    waited=$(( waited + 1 ))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    warn "the guest did not power off within ${timeout}s; stopping the VM"
+    stop_vm
+  else
+    rm -f "$PIDFILE"
+    log "guest powered off cleanly after ${waited}s"
+  fi
 }
 trap stop_vm EXIT INT TERM
 
@@ -186,6 +223,82 @@ case "$MODE" in
     exit 0
     ;;
 
+  --snapshots)
+    [[ -f "$DISK" ]] || die "$DISK does not exist; run --install or the GUI test first"
+    [[ -n "$ISO" ]] || warn "no ISO in $OUT_DIR (only needed for --install)"
+    log "booting $DISK to exercise the snapshot stack (phase A)"
+    rm -f "$MON_SOCK" "$SER_SOCK" "$PIDFILE"
+    start_vm
+
+    SNAP_LOG="$EVIDENCE_DIR/snapshots-check.log"
+    SNAP_SUMMARY="$EVIDENCE_DIR/snapshots-check.txt"
+    : >"$SNAP_LOG"
+    snap_status=0
+    pass="${INSTALL_PASS:-test}"
+    GRUB_DOWN=0 LIVE_USER="${INSTALL_USER:-tester}" LIVE_PASS="$pass" \
+      USE_SUDO=0 REMOTE_ENV="INSTALL_PASS='$pass'" \
+      LOGIN_TIMEOUT=300 RUN_TIMEOUT="${SNAPSHOT_TIMEOUT:-2400}" \
+      python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
+      "$SER_SOCK" "$SNAP_LOG" "$PROJECT_ROOT/tests/install/snapshots-check.sh" "$SNAP_SUMMARY" \
+      || snap_status=$?
+    wait_guest_poweroff 240
+    stop_vm
+
+    if [[ -f "$SNAP_SUMMARY" ]]; then
+      sed -n '1,400p' "$SNAP_SUMMARY" | tee -a "$SNAP_LOG" >&2
+    fi
+    if (( snap_status != 0 )) || ! grep -q 'SNAPSHOTS RESULT: PASSED' "$SNAP_SUMMARY" 2>/dev/null; then
+      warn "the snapshot stack check failed (evidence: $SNAP_LOG)"
+      exit 1
+    fi
+    plan="$(sed -n 's/^SNAPSHOT BOOT PLAN: //p' "$SNAP_SUMMARY" | head -1)"
+    if [[ -z "$plan" ]]; then
+      warn "phase A printed no snapshot boot plan (evidence: $SNAP_SUMMARY)"
+      exit 1
+    fi
+    printf '%s\n' "$plan" >"$PLAN_FILE"
+    log "snapshots created, protected and listed in GRUB; boot plan: $plan"
+    exit 0
+    ;;
+
+  --snapshot-boot)
+    [[ -f "$DISK" ]] || die "$DISK does not exist; run --install first"
+    [[ -f "$PLAN_FILE" ]] || die "no $PLAN_FILE; run --snapshots first"
+    read -r plan <"$PLAN_FILE"
+    # "down <N> right <R> subdown <M>" from tests/install/snapshots-check.sh.
+    grub_down="" grub_right=0 grub_sub_down=0
+    read -r _ grub_down _ grub_right _ grub_sub_down <<<"$plan"
+    [[ "$grub_down" =~ ^[0-9]+$ ]] || die "unreadable boot plan '$plan' in $PLAN_FILE"
+    log "booting the snapshot: GRUB plan '$plan' (down $grub_down, right $grub_right, subdown $grub_sub_down)"
+    rm -f "$MON_SOCK" "$SER_SOCK" "$PIDFILE"
+    start_vm
+
+    SNAPBOOT_LOG="$EVIDENCE_DIR/snapshot-boot.log"
+    SNAPBOOT_SUMMARY="$EVIDENCE_DIR/snapshot-boot.txt"
+    : >"$SNAPBOOT_LOG"
+    snapboot_status=0
+    pass="${INSTALL_PASS:-test}"
+    GRUB_DOWN="$grub_down" GRUB_RIGHT="$grub_right" GRUB_SUB_DOWN="$grub_sub_down" \
+      LIVE_USER="${INSTALL_USER:-tester}" LIVE_PASS="$pass" \
+      USE_SUDO=0 REMOTE_ENV="INSTALL_PASS='$pass'" \
+      LOGIN_TIMEOUT=300 RUN_TIMEOUT="${SNAPSHOT_TIMEOUT:-2400}" \
+      python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
+      "$SER_SOCK" "$SNAPBOOT_LOG" "$PROJECT_ROOT/tests/install/snapshot-boot-check.sh" "$SNAPBOOT_SUMMARY" \
+      || snapboot_status=$?
+    wait_guest_poweroff 240
+    stop_vm
+
+    if [[ -f "$SNAPBOOT_SUMMARY" ]]; then
+      sed -n '1,400p' "$SNAPBOOT_SUMMARY" | tee -a "$SNAPBOOT_LOG" >&2
+    fi
+    if (( snapboot_status != 0 )) || ! grep -q 'SNAPSHOT BOOT RESULT: PASSED' "$SNAPBOOT_SUMMARY" 2>/dev/null; then
+      warn "the snapshot boot or the rollback failed (evidence: $SNAPBOOT_LOG)"
+      exit 1
+    fi
+    log "booted snapshot $plan, verified the overlay, rolled back; now run --boot-installed --kernel both"
+    exit 0
+    ;;
+
   --boot-installed)
     [[ -f "$DISK" ]] || die "$DISK does not exist; run --install first"
     [[ -n "${ISO:-}" ]] || warn "no ISO in $OUT_DIR (only needed for --install)"
@@ -209,7 +322,10 @@ case "$MODE" in
       SUMMARY="$EVIDENCE_DIR/installed-boot-${tag}.txt"
       : >"$LOG"
       run_status=0
+      # INSTALL_PASS lets verify-installed.sh prove that `sudo` really elevates
+      # for this account (the wheel rule), which is needed by every recovery step.
       GRUB_DOWN="$GRUB_INDEX" LIVE_USER="${INSTALL_USER:-tester}" LIVE_PASS="${INSTALL_PASS:-test}" USE_SUDO=0 \
+        REMOTE_ENV="INSTALL_PASS='${INSTALL_PASS:-test}'" \
         LOGIN_TIMEOUT=300 RUN_TIMEOUT=900 \
         python3 "$PROJECT_ROOT/scripts/qemu-serial-run.py" \
         "$SER_SOCK" "$LOG" "$PROJECT_ROOT/tests/install/verify-installed.sh" "$SUMMARY" \

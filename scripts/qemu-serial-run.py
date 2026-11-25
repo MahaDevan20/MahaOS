@@ -28,7 +28,13 @@ LOGIN_TIMEOUT = float(os.environ.get("LOGIN_TIMEOUT", "420"))
 # recovery -- so 0 is the regular linux kernel and 3 is linux-lts;
 # tests/install/gui-install-audit.sh asserts that layout on the installed
 # grub.cfg before the boot test relies on it.
+# A snapshot boot lives one level down: after the Down presses, GRUB_RIGHT Enter
+# presses open the highlighted submenu (grub-btrfs' "Snapshots") and
+# GRUB_SUB_DOWN moves inside it before Enter boots. tests/install/snapshots-check.sh
+# prints the plan ("down N right 1 subdown M") from grub-btrfs.cfg.
 GRUB_DOWN = int(os.environ.get("GRUB_DOWN", "-1"))
+GRUB_RIGHT = int(os.environ.get("GRUB_RIGHT", "0"))
+GRUB_SUB_DOWN = int(os.environ.get("GRUB_SUB_DOWN", "0"))
 # The live session needs sudo (passwordless there); an installed system must not,
 # so its checks run unprivileged.
 USE_SUDO = os.environ.get("USE_SUDO", "1") != "0"
@@ -104,8 +110,21 @@ if GRUB_DOWN >= 0:
         for _ in range(GRUB_DOWN):
             sock.sendall(b"\x1b[B")  # Down
             time.sleep(0.4)
+        for _ in range(GRUB_RIGHT):
+            sock.sendall(b"\x1b[C")  # Right: open the highlighted submenu
+            time.sleep(0.6)
+        for _ in range(GRUB_SUB_DOWN):
+            sock.sendall(b"\x1b[B")  # Down inside the submenu
+            time.sleep(0.4)
         sock.sendall(b"\r")  # Enter
-        print(f"GRUB: selected entry {GRUB_DOWN}", file=sys.stderr)
+        if GRUB_RIGHT:
+            print(
+                f"GRUB: opened a submenu and selected entry {GRUB_SUB_DOWN}"
+                f" after {GRUB_DOWN} top-level Down presses",
+                file=sys.stderr,
+            )
+        else:
+            print(f"GRUB: selected entry {GRUB_DOWN}", file=sys.stderr)
     else:
         print("GRUB menu never appeared on the serial console", file=sys.stderr)
 

@@ -1,7 +1,27 @@
 # snapper root configuration for MahaDevan's OS.
-# Installed by mahadevanos-branding to /etc/snapper/configs/root and re-tuned by
-# installer/postinstall/40-snapshots.sh. Retention is deliberately small: snapshots
-# share extents with the live system, but metadata and changed blocks are not free.
+#
+# Installed by mahadevanos-settings to /etc/snapper/configs/root and re-tuned by
+# installer/postinstall/40-snapshots.sh.
+#
+# Layout (the one documented on the Arch Wiki and used by Garuda): snapshots of /
+# live in the @snapshots subvolume mounted at /.snapshots, so a rollback of @
+# never rolls back the snapshots themselves. SUBVOLUME is / because the snapshot
+# target users see is the root filesystem, not the subvolume path.
+#
+# Retention. Snapshots share extents with the live tree, so they are cheap, but
+# they are not free: metadata and every changed block are kept alive. The limits
+# below bound that in two independent ways.
+#   * number/timeline snapshots: youngest N are kept, older ones are deleted;
+#     NUMBER_MIN_AGE/TIMELINE_MIN_AGE stop cleanup from deleting a snapshot that
+#     was created minutes ago (the one a user would want after a bad update).
+#   * space: cleanup also runs when snapshots exceed SPACE_LIMIT or free space
+#     falls under FREE_LIMIT, which is the backstop that keeps a full disk from
+#     making the machine unusable.
+#   * important=yes snapshots are NEVER touched by the number algorithm; it keeps
+#     the youngest NUMBER_LIMIT_IMPORTANT of them independently of the normal
+#     count. /usr/bin/mahadevanos-snapshot-guard (timer + boot) keeps exactly one
+#     such anchor - the newest snapshot - so there is always a known-good state
+#     to go back to, even after months of updates. See documentation/recovery/.
 
 SUBVOLUME="/"
 FSTYPE="btrfs"
@@ -17,7 +37,7 @@ BACKGROUND_COMPARISON="yes"
 NUMBER_CLEANUP="yes"
 NUMBER_MIN_AGE="1800"
 NUMBER_LIMIT="10"
-NUMBER_LIMIT_IMPORTANT="10"
+NUMBER_LIMIT_IMPORTANT="5"
 
 TIMELINE_CREATE="yes"
 TIMELINE_CLEANUP="yes"

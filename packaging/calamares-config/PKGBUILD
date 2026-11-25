@@ -3,7 +3,7 @@
 # target by /usr/share/mahadevanos/postinstall/99-cleanup.sh.
 pkgname=calamares-config
 pkgver=0.1.0
-pkgrel=1
+pkgrel=10
 pkgdesc="Calamares offline installer configuration for MahaDevan's OS"
 arch=('any')
 url="https://github.com/mahadevan"

@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep the last known-good Btrfs snapshot safe from snapper cleanup
+Documentation=man:snapper(8) man:snapper-configs(5)
+# The guard only reads snapper's list and rewrites userdata; it never creates or
+# deletes a snapshot, so it is safe to run at any time.
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mahadevanos-snapshot-guard -q
+Nice=10
+IOSchedulingClass=idle

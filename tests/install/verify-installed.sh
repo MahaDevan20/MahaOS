@@ -36,6 +36,27 @@ ls /etc/systemd/system/mahadevanos-liveuser.service 2>/dev/null && fail "live-on
 [ ! -e /etc/mahadevanos-live ] && ok "no live-session marker" || fail "/etc/mahadevanos-live present"
 systemctl --failed --no-legend --no-pager | grep -q mahadevanos && fail "a mahadevanos unit failed" || ok "no failed mahadevanos unit"
 
+echo "--- sudo works for this account (recovery needs it)"
+if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx wheel; then
+  ok "$(id -un) is in wheel"
+else
+  fail "$(id -un) is not in wheel: sudo, and every documented recovery step, is unusable"
+fi
+# The real proof: the account's own password elevates. /etc/sudoers is root-only,
+# so its contents cannot be read from here; running sudo can.
+if [[ -n "${INSTALL_PASS:-}" ]]; then
+  if printf '%s\n' "$INSTALL_PASS" | sudo -S -k true 2>/dev/null; then
+    ok "sudo works with this account's password (wheel rule is live)"
+  else
+    fail "sudo refuses this account's password: no wheel rule, or the account is not in wheel"
+  fi
+fi
+if sudo -n true 2>/dev/null; then
+  fail "sudo succeeds without a password"
+else
+  ok "sudo needs a password (not a passwordless rule)"
+fi
+
  echo "--- kernel and initramfs on disk"
 ls -l /boot/vmlinuz-* /boot/initramfs-*.img 2>/dev/null || fail "kernel or initramfs missing in /boot"
 
@@ -95,7 +116,7 @@ else
 fi
 
 echo "--- learning material, offline (mahadevanos-learning)"
-for doc in commands shortcuts network; do
+for doc in commands shortcuts network recovery; do
   f="/usr/share/doc/mahadevanos/$doc.md"
   if [[ -s "$f" ]]; then ok "$f ($(wc -c <"$f") bytes)"; else fail "$f is missing"; fi
 done
@@ -156,6 +177,74 @@ for f in /boot/vmlinuz-* /boot/initramfs-*.img; do
   fs=$(stat -c %s "$f")
   if (( fs % 4096 == 0 )); then ok "$(basename "$f") is $fs bytes (aligned)"; else fail "$(basename "$f") is $fs bytes, not 4096-aligned"; fi
 done
+
+# M3: Btrfs snapshots and recovery. Everything here is checked without
+# privileges; the root-only details (the snapper config, /.snapshots, grub.cfg)
+# are asserted by tests/install/gui-install-audit.sh and the snapshot phases.
+echo "--- snapshots and recovery"
+for pkg in snapper snap-pac grub-btrfs btrfs-assistant kitty; do
+  if pacman -Q "$pkg" >/dev/null 2>&1; then ok "package $(pacman -Q "$pkg")"; else fail "$pkg is not installed"; fi
+done
+for unit in grub-btrfsd.service snapper-timeline.timer snapper-cleanup.timer \
+            snapper-boot.timer mahadevanos-snapshot-guard.timer; do
+  state="$(systemctl is-enabled "$unit" 2>/dev/null)"
+  if [[ "$state" == "enabled" ]]; then ok "$unit is enabled"; else fail "$unit is not enabled (state: ${state:-none})"; fi
+done
+[[ -x /usr/bin/mahadevanos-snapshot-guard ]] && ok "mahadevanos-snapshot-guard installed" \
+  || fail "mahadevanos-snapshot-guard is missing"
+[[ -f /usr/lib/systemd/system/mahadevanos-snapshot-guard.service ]] \
+  && ok "the guard service unit is installed" || fail "the guard service unit is missing"
+[[ -x /usr/bin/btrfs-assistant ]] && ok "btrfs-assistant installed" || fail "btrfs-assistant is missing"
+[[ -f /usr/share/applications/btrfs-assistant.desktop ]] \
+  && ok "btrfs-assistant has a launcher entry" || fail "btrfs-assistant.desktop is missing"
+[[ -d /.snapshots ]] && ok "/.snapshots exists" || fail "/.snapshots is missing"
+# snap-pac reads the first file and its hook is AbortOnFail (a missing file would
+# abort every pacman transaction); systemd-helper reads the second, and without it
+# the timeline/cleanup timers are no-ops and the retention limits never apply.
+for conf in /etc/snapper/snapper /etc/conf.d/snapper; do
+  if grep -qE '^SNAPPER_CONFIGS="[^"]*root' "$conf" 2>/dev/null; then
+    ok "$conf lists the root snapper configuration"
+  else
+    fail "$conf does not list the root snapper configuration"
+  fi
+done
+if grep -q 'grub-btrfs-overlayfs' /etc/mkinitcpio.conf; then
+  ok "/etc/mkinitcpio.conf lists the grub-btrfs-overlayfs hook"
+else
+  fail "grub-btrfs-overlayfs is missing from /etc/mkinitcpio.conf"
+fi
+for img in /boot/initramfs-linux.img /boot/initramfs-linux-lts.img; do
+  [[ -f "$img" ]] || { fail "$img is missing"; continue; }
+  # mkinitcpio writes the images 0600, so this unprivileged run cannot read
+  # them. tests/install/gui-install-audit.sh (root) and the snapshot boot itself
+  # check the contents; here the mkinitcpio.conf hook above is the evidence.
+  if [[ ! -r "$img" ]]; then
+    echo "note: $(basename "$img") is root-only; its contents are checked by the GUI audit and the snapshot boot"
+    continue
+  fi
+  if lsinitcpio "$img" 2>/dev/null | grep -q 'grub-btrfs-overlayfs'; then
+    ok "$(basename "$img") carries the overlayfs hook (snapshots boot writable)"
+  else
+    fail "$(basename "$img") has no overlayfs hook: a snapshot boot would be read-only"
+  fi
+done
+if [[ -s /usr/share/doc/mahadevanos/recovery.md ]]; then
+  ok "recovery.md is installed ($(wc -c < /usr/share/doc/mahadevanos/recovery.md) bytes)"
+else
+  fail "recovery.md is missing from /usr/share/doc/mahadevanos"
+fi
+if [[ -x /usr/bin/mhelp ]]; then
+  mhelp_recovery="$(mhelp recovery 2>&1)"
+  if grep -q 'snapper' <<<"$mhelp_recovery"; then
+    ok "mhelp recovery prints the recovery page"
+  else
+    fail "mhelp recovery printed nothing useful"
+  fi
+fi
+# The whole M3 stack is useless if a normal user cannot even read the
+# documentation about it, so the tests exercise it unprivileged from here.
+snapper_list_out="$(snapper -c root list 2>&1)" || true
+printf 'snapper -c root list (unprivileged): %s\n' "$(head -2 <<<"$snapper_list_out" | tr '\n' ' ')"
 
 # No live-only leftovers from the installer, either.
 [ ! -e /usr/lib/mahadevanos ] && ok "no /usr/lib/mahadevanos kernel stash" || fail "kernel stash left behind"

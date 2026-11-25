@@ -4,6 +4,10 @@
 
 GRUB_DEFAULT=saved
 GRUB_SAVEDEFAULT=true
+# At least 3 seconds and a visible menu: the Snapshots submenu (grub-btrfs) and
+# the linux-lts fallback must be reachable without holding a key at the right
+# moment. tests/install/snapshots-check.sh and gui-install-audit.sh assert that
+# /etc/default/grub and the generated grub.cfg keep a timeout of 3 or more.
 GRUB_TIMEOUT=5
 GRUB_TIMEOUT_STYLE=menu
 # Without this, grub-mkconfig hides every kernel but the default one in an
@@ -23,7 +27,8 @@ GRUB_TOP_LEVEL="/boot/vmlinuz-linux"
 # Find other operating systems (dual boot). Requires os-prober.
 GRUB_DISABLE_OS_PROBER=false
 
-# Branding theme; grub-btrfs adds the snapshot submenu into this menu.
+# Branding theme; grub-btrfs adds the "Snapshots" submenu into this menu, after
+# the kernel entries (so entry 0 stays `linux` and entry 3 `linux-lts`).
 GRUB_THEME="/boot/grub/themes/mahadevanos/theme.txt"
 GRUB_BACKGROUND="/boot/grub/themes/mahadevanos/background.png"
 

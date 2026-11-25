@@ -118,7 +118,7 @@ echo "=== mhelp works offline"
 export MAHADEVANOS_DOCS="$PROJECT_ROOT/learning"
 index_out="$(learning/mhelp 2>&1)"
 if grep -q 'mhelp commands' <<<"$index_out"; then ok "mhelp shows the index"; else no "mhelp has no index"; fi
-for page in commands keys network; do
+for page in commands keys network recovery; do
   page_out="$(learning/mhelp "$page" 2>&1)"
   if grep -q '^#' <<<"$page_out"; then
     ok "mhelp $page prints a page"
@@ -220,6 +220,124 @@ grep -q 'usr/share/doc/mahadevanos' "$lpkg" && grep -q 'etc/profile.d' "$lpkg" &
   grep -q 'etc/skel/practice' "$lpkg" &&
   ok "the learning package installs the guides, the hint and the practice folder" ||
   no "the learning package is missing files"
+
+echo "=== the recovery page and the command guide match the M3 stack"
+if grep -q 'mhelp recovery' <<<"$index_out"; then ok "the mhelp index lists the recovery page"; else no "mhelp's index hides the recovery page"; fi
+for needle in 'snapper -c root list' 'Snapshots' '@snapshots' 'mhelp recovery' \
+              'Btrfs Assistant' 'read-only'; do
+  if grep -qiF -- "$needle" learning/recovery.md; then
+    ok "recovery.md covers '$needle'"
+  else
+    no "recovery.md does not mention '$needle'"
+  fi
+done
+for needle in 'snapper -c root list' 'snapper -c root rollback' 'btrfs subvolume list' \
+              'mhelp recovery'; do
+  if grep -qF -- "$needle" learning/commands.md; then
+    ok "commands.md teaches '$needle'"
+  else
+    no "commands.md does not teach '$needle'"
+  fi
+done
+if grep -q 'for doc in commands shortcuts network recovery' packaging/mahadevanos-learning/PKGBUILD; then
+  ok "the learning package ships recovery.md"
+else
+  no "the learning package does not ship recovery.md"
+fi
+if grep -q 'usr/bin/mahadevanos-snapshot-guard' packaging/mahadevanos-settings/PKGBUILD &&
+   grep -q 'usr/lib/systemd/system/mahadevanos-snapshot-guard.timer' packaging/mahadevanos-settings/PKGBUILD; then
+  ok "the settings package ships the snapshot guard and its timer"
+else
+  no "the settings package does not ship the snapshot guard or its timer"
+fi
+if grep -q 'important=yes' configs/snapper/root; then
+  ok "the snapper config documents the important anchor"
+else
+  no "the snapper config does not mention important snapshots"
+fi
+
+# documentation/recovery/ is the technical guide the GRUB and live-USB
+# procedures live in; the tests and mhelp point at it, so it has to exist and
+# use this distro's subvolume names.
+for f in README boot-snapshot rollback repair-grub; do
+  if [[ -s "documentation/recovery/$f.md" ]]; then ok "documentation/recovery/$f.md present"; else no "documentation/recovery/$f.md missing"; fi
+done
+for needle in '@home' '@log' '@cache' '@snapshots' 'subvolid=5' '@.broken' \
+              'mkinitcpio -P' 'grub-mkconfig' 'arch-chroot' 'linux-lts'; do
+  if grep -qF -- "$needle" documentation/recovery/*.md; then
+    ok "documentation/recovery/ covers '$needle'"
+  else
+    no "documentation/recovery/ never mentions '$needle'"
+  fi
+done
+
+# The guard is what makes "never delete the last known-good snapshot" true, so
+# exercise it against a stub snapper: the newest snapshot becomes the anchor, a
+# second run changes nothing, and a newer snapshot releases the old anchor.
+echo "=== the snapshot guard keeps exactly one protected anchor"
+guard="$PROJECT_ROOT/scripts/mahadevanos-snapshot-guard"
+guard_tmp="$(mktemp -d)"
+mkdir -p "$guard_tmp/configs" "$guard_tmp/state" "$guard_tmp/bin"
+: >"$guard_tmp/configs/root"
+cat >"$guard_tmp/bin/snapper" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_LOG"
+if [[ " $* " == *" list "* ]]; then
+  printf 'number\n'
+  for (( n = 1; n <= ${STUB_MAX:-3}; n++ )); do printf '%s\n' "$n"; done
+fi
+exit 0
+STUB
+chmod +x "$guard_tmp/bin/snapper"
+guard_run() {
+  env STUB_LOG="$guard_tmp/calls" STUB_MAX="${STUB_MAX:-3}" \
+    MAHADEVANOS_SNAPSHOT_CONFIG_DIR="$guard_tmp/configs" \
+    MAHADEVANOS_SNAPSHOT_STATE_DIR="$guard_tmp/state" \
+    SNAPPER="$guard_tmp/bin/snapper" "$guard" "$@"
+}
+: >"$guard_tmp/calls"
+if guard_run -q; then ok "the guard runs against a stubbed snapper"; else no "the guard failed on a stubbed snapper"; fi
+if grep -q -- 'modify --cleanup-algorithm number --userdata important=yes 3' "$guard_tmp/calls"; then
+  ok "the newest snapshot (3) is marked important=yes"
+else
+  no "the guard did not mark the newest snapshot important"
+  sed -n '1,10p' "$guard_tmp/calls"
+fi
+if [[ "$(cat "$guard_tmp/state/snapshot-anchor" 2>/dev/null)" == "3" ]]; then
+  ok "the anchor state records snapshot 3"
+else
+  no "the anchor state file does not record snapshot 3"
+fi
+: >"$guard_tmp/calls"
+if guard_run -q && ! grep -q modify "$guard_tmp/calls"; then
+  ok "a second run is a no-op (no snapper modify call)"
+else
+  no "a second run still called snapper modify"
+  cat "$guard_tmp/calls"
+fi
+: >"$guard_tmp/calls"
+STUB_MAX=4 guard_run -q
+if grep -q -- 'userdata important=yes 4' "$guard_tmp/calls"; then
+  ok "a newer snapshot takes over as the anchor"
+else
+  no "snapshot 4 did not become the anchor"
+fi
+if grep -q -- 'userdata important=no 3' "$guard_tmp/calls"; then
+  ok "the previous anchor is released (important=no)"
+else
+  no "the previous anchor was never downgraded"
+fi
+if [[ ! -e "$guard_tmp/configs/nope" ]] && env MAHADEVANOS_SNAPSHOT_CONFIG_DIR="$guard_tmp/configs" \
+     MAHADEVANOS_SNAPSHOT_STATE_DIR="$guard_tmp/state" SNAPPER="$guard_tmp/bin/snapper" \
+     "$guard" -q --quiet 2>/dev/null; then
+  ok "an unknown config is not an error (nothing to protect)"
+fi
+rm -rf "$guard_tmp"
+bash -n "$guard" && ok "mahadevanos-snapshot-guard parses" || no "mahadevanos-snapshot-guard does not parse"
+for unit in configs/snapshot-guard/mahadevanos-snapshot-guard.service \
+            configs/snapshot-guard/mahadevanos-snapshot-guard.timer; do
+  [[ -s "$PROJECT_ROOT/$unit" ]] && ok "$unit present" || no "$unit missing"
+done
 
 printf '\n%s: %d passed, %d failed\n' "$0" "$pass" "$fail"
 (( fail == 0 ))

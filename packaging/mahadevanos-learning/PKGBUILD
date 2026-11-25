@@ -1,7 +1,7 @@
 # Maintainer: MahaDevan
 # The learning material a new user needs on day one, all offline:
-#   /usr/share/doc/mahadevanos/{commands,shortcuts,network}.md
-#   /usr/bin/mhelp                  (mhelp commands | keys | network | <word>)
+#   /usr/share/doc/mahadevanos/{commands,shortcuts,network,recovery}.md
+#   /usr/bin/mhelp                  (mhelp commands|keys|network|recovery|<word>)
 #   /etc/profile.d                  (one-line hint per terminal session)
 #   /etc/skel/practice              (files that are safe to experiment on)
 #   launcher entries                (shortcut cheat sheet and help, in wofi)
@@ -12,7 +12,7 @@
 # compositor configuration.
 pkgname=mahadevanos-learning
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Offline help for MahaDevan's OS: command guide, shortcuts, network, mhelp"
 arch=('any')
 url="https://github.com/mahadevan"
@@ -29,7 +29,7 @@ prepare() {
 
 package() {
   install -d "$pkgdir/usr/share/doc/mahadevanos"
-  for doc in commands shortcuts network; do
+  for doc in commands shortcuts network recovery; do
     install -m644 "$srcdir/learning/$doc.md" \
       "$pkgdir/usr/share/doc/mahadevanos/$doc.md"
   done

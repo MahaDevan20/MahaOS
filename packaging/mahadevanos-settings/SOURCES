@@ -2,5 +2,7 @@ configs/hypr
 configs/kitty
 configs/dolphin
 configs/snapper/root
+configs/snapshot-guard
 configs/quickshell
+scripts/mahadevanos-snapshot-guard
 LICENSE

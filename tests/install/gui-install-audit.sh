@@ -113,6 +113,19 @@ if [[ -n "$home_subvol" ]]; then
   mkdir -p "$TARGET/home"
   mount -o "ro,subvol=$home_subvol" "${DISK}2" "$TARGET/home" || fail "cannot mount subvol $home_subvol at /home"
 fi
+# Snapshots live in their own subvolume mounted at /.snapshots; without this the
+# audit would inspect an empty directory and never see the initial snapshot.
+snapshots_subvol=/.snapshots
+snapshots_subvol=$(awk '
+  /^btrfsSubvolumes:/{f=1;next} f&&/^[^[:space:]#]/{f=0}
+  f&&/mountPoint:/{line=$0; sub(/^[[:space:]]*-?[[:space:]]*mountPoint:[[:space:]]*/,"",line); gsub(/["[:space:]]/,"",line); mp=line}
+  f&&/subvolume:/{line=$0; sub(/^[[:space:]]*subvolume:[[:space:]]*/,"",line); gsub(/["[:space:]]/,"",line); if (mp=="/.snapshots") print line}
+' "$CONF/mount.conf")
+snapshots_subvol=${snapshots_subvol:-/@snapshots}
+echo "snapshots subvolume from mount.conf: $snapshots_subvol"
+mkdir -p "$TARGET/.snapshots"
+mount -o "ro,subvol=$snapshots_subvol" "${DISK}2" "$TARGET/.snapshots" \
+  || fail "cannot mount subvol $snapshots_subvol at /.snapshots"
 echo "--- ESP contents"
 find "$TARGET/boot/efi" -maxdepth 3 -name '*.efi' -o -maxdepth 3 -name 'grub.cfg' | head -10
 
@@ -177,6 +190,105 @@ for p in boot/efi/EFI/mahadevanos/grubx64.efi boot/efi/EFI/BOOT/BOOTX64.EFI \
          boot/initramfs-linux.img boot/initramfs-linux-lts.img usr/lib/locale/locale-archive; do
   check_file "$p"
 done
+
+echo "--- snapshots and recovery (M3)"
+snap_conf="$TARGET/etc/snapper/configs/root"
+if [[ -s "$snap_conf" ]]; then
+  ok "snapper config installed at /etc/snapper/configs/root"
+  for key in 'SUBVOLUME="/"' 'NUMBER_CLEANUP="yes"' 'NUMBER_LIMIT="10"' \
+             'NUMBER_LIMIT_IMPORTANT="5"' 'TIMELINE_CLEANUP="yes"' \
+             'SPACE_LIMIT="0.5"' 'FREE_LIMIT="0.2"'; do
+    grep -qF -- "$key" "$snap_conf" && ok "snapper $key" || fail "snapper config lacks $key"
+  done
+else
+  fail "no snapper config in the target: postinstall 40-snapshots.sh did not run"
+fi
+# snap-pac (AbortOnFail) reads SNAPPER_CONFIGS from /etc/snapper/snapper and
+# snapper-timeline/cleanup read it from /etc/conf.d/snapper; the snapper package
+# ships neither file.
+for conf in etc/snapper/snapper etc/conf.d/snapper; do
+  if grep -qE '^SNAPPER_CONFIGS="[^"]*root' "$TARGET/$conf" 2>/dev/null; then
+    ok "$conf lists the root configuration"
+  else
+    fail "$conf does not list the root snapper configuration"
+  fi
+done
+if [[ -s "$TARGET/etc/default/grub-btrfs/config" ]]; then
+  grep -q '^GRUB_BTRFS_SUBMENUNAME="Snapshots"' "$TARGET/etc/default/grub-btrfs/config" \
+    && ok "grub-btrfs names the submenu Snapshots" || fail "the grub-btrfs submenu is not named Snapshots"
+else
+  fail "no /etc/default/grub-btrfs/config in the target"
+fi
+# snap-pac treats every section here as a snapper config and its hook is
+# AbortOnFail, so only [root] may appear; the live-image placeholder must have
+# been replaced by postinstall/40-snapshots.sh.
+if [[ -s "$TARGET/etc/snap-pac.ini" ]] && grep -qx 'snapshot = True' "$TARGET/etc/snap-pac.ini"; then
+  ok "/etc/snap-pac.ini snapshots [root]"
+else
+  fail "/etc/snap-pac.ini is missing or does not enable snapshots ([root] snapshot = True)"
+fi
+if grep -E '^\[' "$TARGET/etc/snap-pac.ini" 2>/dev/null | grep -qvE '^\[root\]$'; then
+  fail "/etc/snap-pac.ini names a section that is not a snapper config; pacman would abort"
+else
+  ok "/etc/snap-pac.ini only names the root configuration"
+fi
+check_file boot/grub/grub-btrfs.cfg
+if grep -q "submenu 'Snapshots'" "$TARGET/boot/grub/grub.cfg" 2>/dev/null; then
+  ok "the first grub.cfg has the Snapshots submenu (created before grub-mkconfig)"
+else
+  fail "grub.cfg has no Snapshots submenu"
+fi
+# grub-mkconfig indents the timeout inside `if [ x$feature_timeout_style = xy ]`.
+grub_timeout=$(sed -n 's/^[[:space:]]*set timeout=\([0-9-]*\).*/\1/p' "$TARGET/boot/grub/grub.cfg" 2>/dev/null | head -1)
+if [[ -n "$grub_timeout" ]] && (( grub_timeout >= 3 )); then
+  ok "the GRUB menu is visible for ${grub_timeout}s (>= 3)"
+else
+  fail "the GRUB menu timeout is '${grub_timeout:-unset}', needs >= 3 seconds"
+fi
+if grep -q '/@snapshots/1/snapshot' "$TARGET/boot/grub/grub-btrfs.cfg" 2>/dev/null; then
+  ok "grub-btrfs.cfg boots the fresh-install snapshot"
+else
+  fail "grub-btrfs.cfg has no entry for /.snapshots/1/snapshot"
+  head -20 "$TARGET/boot/grub/grub-btrfs.cfg" 2>/dev/null
+fi
+if [[ -x "$TARGET/.snapshots/1/snapshot/usr/bin/kitty" ]]; then
+  ok "the fresh-install snapshot /.snapshots/1/snapshot is populated"
+else
+  fail "/.snapshots/1/snapshot is missing or empty: nothing to roll back to"
+fi
+for f in vmlinuz-linux vmlinuz-linux-lts initramfs-linux.img initramfs-linux-lts.img; do
+  size=$(stat -c %s "$TARGET/.snapshots/1/snapshot/boot/$f" 2>/dev/null || echo 0)
+  if (( size > 0 && size % 4096 == 0 )); then
+    ok "snapshot $f is $size bytes (aligned for GRUB)"
+  else
+    fail "snapshot $f is $size bytes: a rollback to it would not boot"
+  fi
+done
+if lsinitcpio "$TARGET/.snapshots/1/snapshot/boot/initramfs-linux.img" 2>/dev/null | grep -q 'grub-btrfs-overlayfs'; then
+  ok "the snapshot's initramfs carries the overlayfs hook"
+else
+  fail "the snapshot's initramfs has no overlayfs hook"
+fi
+grep -q 'grub-btrfs-overlayfs' "$TARGET/etc/mkinitcpio.conf" \
+  && ok "/etc/mkinitcpio.conf lists the overlayfs hook" || fail "/etc/mkinitcpio.conf lacks the overlayfs hook"
+for unit in multi-user.target.wants/grub-btrfsd.service \
+            timers.target.wants/snapper-timeline.timer \
+            timers.target.wants/snapper-cleanup.timer \
+            timers.target.wants/snapper-boot.timer \
+            timers.target.wants/mahadevanos-snapshot-guard.timer; do
+  check_link "etc/systemd/system/$unit"
+done
+check_file usr/bin/mahadevanos-snapshot-guard
+check_file usr/bin/btrfs-assistant
+check_file usr/share/applications/btrfs-assistant.desktop
+check_file usr/share/doc/mahadevanos/recovery.md
+if recovery_out="$(chroot "$TARGET" /usr/bin/mhelp recovery 2>&1)"; then
+  grep -q 'snapper' <<<"$recovery_out" && ok "mhelp recovery works in the target" \
+    || fail "mhelp recovery printed nothing"
+else
+  fail "mhelp recovery failed in the target"
+fi
+umount "$TARGET/.snapshots" 2>/dev/null || true
 umount "$TARGET/home" 2>/dev/null || true
 umount "$TARGET/boot/efi" 2>/dev/null || true
 for k in boot/vmlinuz-linux boot/vmlinuz-linux-lts boot/initramfs-linux.img boot/initramfs-linux-lts.img; do
@@ -223,6 +335,31 @@ if [[ -n "$user_line" ]]; then
 else
   fail "no regular user account in the target: the users module did not run"
 fi
+# postinstall/25-sudo.sh: Arch ships the wheel rule commented out, so without a
+# drop-in the only account on this system cannot run any recovery command.
+sudo_rule_file="$(grep -rlE '^[[:space:]]*%wheel[[:space:]]+ALL' \
+  "$TARGET/etc/sudoers" "$TARGET/etc/sudoers.d" 2>/dev/null | head -1)"
+if [[ -n "$sudo_rule_file" ]]; then
+  ok "target sudoers allows wheel ($sudo_rule_file)"
+else
+  fail "the target has no wheel sudo rule: the installed user cannot use sudo"
+  ls -la "$TARGET/etc/sudoers.d" 2>/dev/null | head -5
+fi
+if grep -rqsE '^[^#]*NOPASSWD' "$TARGET/etc/sudoers" "$TARGET/etc/sudoers.d" 2>/dev/null; then
+  fail "a NOPASSWD rule reached the target"
+else
+  ok "the target's sudoers has no NOPASSWD rule"
+fi
+if [[ -n "${user_line:-}" ]]; then
+  graded_user="${user_line%%:*}"
+  wheel_members="$(awk -F: '$1 == "wheel" {print $4}' "$TARGET/etc/group" 2>/dev/null)"
+  if tr ',' '\n' <<<"$wheel_members" | grep -qx "$graded_user"; then
+    ok "$graded_user is in wheel (sudo works with a password)"
+  else
+    fail "$graded_user is not in wheel (got 'wheel:$wheel_members')"
+  fi
+fi
+
 [[ -d "$TARGET/etc/NetworkManager/system-connections" ]] && ok "networkcfg created the NM connections dir" \
   || fail "no /etc/NetworkManager/system-connections in the target"
 

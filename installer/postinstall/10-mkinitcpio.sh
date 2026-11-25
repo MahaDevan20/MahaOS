@@ -74,10 +74,18 @@ cat >/etc/mkinitcpio.conf <<'EOF'
 # Generated for the installed system by MahaDevan's OS post-install.
 # btrfs is built into the module list so the root subvolume can be mounted
 # before udev settles; sd-encrypt is unnecessary because LUKS1 is unlocked by GRUB.
+#
+# grub-btrfs-overlayfs (from grub-btrfs, the upstream-documented Arch setup) is the
+# last hook: a snapshot booted from the GRUB "Snapshots" submenu is a read-only
+# btrfs subvolume, and this late hook puts a tmpfs overlay on top so the system can
+# still write to / (changes are discarded on reboot, like a live CD). Without it
+# the snapshot boot panics or drops to an emergency shell as soon as anything
+# writes to /. The hook only acts when the mounted subvolume is ro, so normal
+# boots are untouched.
 MODULES=(btrfs)
 BINARIES=()
 FILES=()
-HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block filesystems fsck)
+HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block filesystems fsck grub-btrfs-overlayfs)
 COMPRESSION="zstd"
 EOF
 

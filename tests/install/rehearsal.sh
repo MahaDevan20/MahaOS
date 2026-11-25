@@ -464,10 +464,34 @@ echo "ok: $unit_count units processed"
 
 step "chroot: postinstall scripts in Calamares module order"
 cover shellprocess@postinstall
-for script in 10-mkinitcpio 15-branding 20-keyring 30-mirrors 40-snapshots 50-hardware-detect 99-cleanup; do
+for script in 10-mkinitcpio 15-branding 20-keyring 25-sudo 30-mirrors 40-snapshots 50-hardware-detect 99-cleanup; do
   echo "--- $script"
   chroot /mnt "/usr/share/mahadevanos/postinstall/${script}.sh"
 done
+
+step "assert sudo works for the installed account"
+# Arch ships the wheel rule commented out in /etc/sudoers, so without
+# postinstall/25-sudo.sh the only account on the system cannot run any of the
+# documented recovery commands (sudo snapper, sudo mkinitcpio, sudo chroot).
+sudoers_rule=$(grep -rhE '^[[:space:]]*%wheel[[:space:]]+ALL' /mnt/etc/sudoers /mnt/etc/sudoers.d 2>/dev/null | head -1)
+[[ -n "$sudoers_rule" ]] || { echo "FAIL: no wheel rule in the target's sudoers"; exit 1; }
+echo "ok: sudoers allows wheel: $sudoers_rule"
+grep -rqsE '^[^#]*NOPASSWD' /mnt/etc/sudoers /mnt/etc/sudoers.d 2>/dev/null \
+  && { echo "FAIL: a NOPASSWD rule reached the target"; exit 1; }
+echo "ok: the wheel rule requires a password"
+target_user=$(awk -F: '$3 >= 1000 && $3 < 60000 {print $1; exit}' /mnt/etc/passwd)
+if [[ -n "$target_user" ]]; then
+  if chroot /mnt id -nG "$target_user" | tr ' ' '\n' | grep -qx wheel; then
+    echo "ok: $target_user is in wheel"
+  else
+    echo "FAIL: $target_user is not in wheel, so sudo would refuse it"
+    exit 1
+  fi
+else
+  echo "note: no regular user in the target yet (the users module runs in the GUI install)"
+fi
+chroot /mnt visudo -c -q && echo "ok: visudo accepts the target's sudoers" \
+  || { echo "FAIL: visudo rejects the target's sudoers"; exit 1; }
 
 step "assert the postinstall cleanup left no autologin"
 if grep -rqsE '^[[:space:]]*AutoLogin|^[[:space:]]*User[[:space:]]*=' \
@@ -592,6 +616,96 @@ fi
 grep -q 'vmlinuz-linux-lts' /mnt/boot/grub/grub.cfg || { echo "FAIL: no linux-lts fallback entry in grub.cfg"; exit 1; }
 echo "ok: linux-lts is present as the fallback entry"
 
+step "assert the M3 snapshot stack in the target"
+# installer/postinstall/40-snapshots.sh creates the first snapshot before the
+# bootloader module runs grub-mkconfig, so the menu the very first boot shows must
+# already carry the Snapshots submenu. Everything here is checked on the target,
+# not on the live system.
+snap_conf=/mnt/etc/snapper/configs/root
+[[ -s "$snap_conf" ]] || { echo "FAIL: no snapper config at $snap_conf"; exit 1; }
+for key in 'SUBVOLUME="/"' 'NUMBER_CLEANUP="yes"' 'NUMBER_LIMIT="10"' \
+           'NUMBER_LIMIT_IMPORTANT="5"' 'TIMELINE_CLEANUP="yes"' \
+           'TIMELINE_LIMIT_HOURLY="5"' 'SPACE_LIMIT="0.5"' 'FREE_LIMIT="0.2"'; do
+  grep -qF -- "$key" "$snap_conf" && echo "ok: snapper $key" \
+    || { echo "FAIL: the snapper config lacks $key"; exit 1; }
+done
+# Neither file is shipped by the snapper package: snap-pac crashes on the missing
+# one (and its hook is AbortOnFail), and systemd-helper does nothing without it,
+# so the retention timers would be no-ops.
+for conf in etc/snapper/snapper etc/conf.d/snapper; do
+  if grep -qE '^SNAPPER_CONFIGS="[^"]*root' "/mnt/$conf" 2>/dev/null; then
+    echo "ok: $conf lists the root configuration"
+  else
+    echo "FAIL: $conf does not list the root snapper configuration"
+    exit 1
+  fi
+done
+btrfs subvolume show /mnt/.snapshots >/dev/null 2>&1 \
+  && echo "ok: /.snapshots is the @snapshots subvolume" \
+  || { echo "FAIL: /.snapshots is not a btrfs subvolume; snapshots would land inside @"; exit 1; }
+[[ -x /mnt/.snapshots/1/snapshot/usr/bin/kitty ]] \
+  && echo "ok: the fresh-install snapshot /.snapshots/1/snapshot is populated" \
+  || { echo "FAIL: /.snapshots/1/snapshot is missing or empty; there is nothing to roll back to"; exit 1; }
+grep -q '^GRUB_BTRFS_SUBMENUNAME="Snapshots"' /mnt/etc/default/grub-btrfs/config \
+  && echo "ok: grub-btrfs names the submenu Snapshots" \
+  || { echo "FAIL: /etc/default/grub-btrfs/config does not name the submenu Snapshots"; exit 1; }
+# snap-pac reads every section of this file as a SNAPPER CONFIG to snapshot and
+# its hook is AbortOnFail: a section that is not a real configuration aborts
+# every pacman transaction (that is how the 2026-11-24 GUI install failed).
+if [[ -f /mnt/etc/snap-pac.ini ]]; then
+  if grep -qx '\[root\]' /mnt/etc/snap-pac.ini &&
+     grep -qx 'snapshot = True' /mnt/etc/snap-pac.ini; then
+    echo "ok: /etc/snap-pac.ini snapshots [root]"
+  else
+    echo "FAIL: /etc/snap-pac.ini does not set a [root] section with snapshot = True"
+    cat /mnt/etc/snap-pac.ini
+    exit 1
+  fi
+  bad_sections=$(grep -E '^\[' /mnt/etc/snap-pac.ini | grep -vE '^\[root\]$' || true)
+  [[ -z "$bad_sections" ]] || { echo "FAIL: /etc/snap-pac.ini names sections that are not snapper configs: $bad_sections"; exit 1; }
+  echo "ok: /etc/snap-pac.ini only names the root configuration"
+else
+  echo "FAIL: /etc/snap-pac.ini missing"
+  exit 1
+fi
+grep -q "submenu 'Snapshots'" /mnt/boot/grub/grub.cfg \
+  && echo "ok: the first grub.cfg already has the Snapshots submenu" \
+  || { echo "FAIL: grub.cfg has no Snapshots submenu: grub-mkconfig ran before the snapshot existed?"; exit 1; }
+# grub-btrfs writes rootflags=... subvol="/@snapshots/1/snapshot" (the value is
+# quoted), so match the path rather than the assignment.
+grep -q '/@snapshots/1/snapshot' /mnt/boot/grub/grub-btrfs.cfg 2>/dev/null \
+  && echo "ok: grub-btrfs.cfg boots /@snapshots/1/snapshot" \
+  || { echo "FAIL: grub-btrfs.cfg has no entry for the fresh-install snapshot"; head -5 /mnt/boot/grub/grub-btrfs.cfg 2>/dev/null; exit 1; }
+for unit in multi-user.target.wants/grub-btrfsd.service \
+            timers.target.wants/snapper-timeline.timer \
+            timers.target.wants/snapper-cleanup.timer \
+            timers.target.wants/snapper-boot.timer \
+            timers.target.wants/mahadevanos-snapshot-guard.timer; do
+  [[ -L "/mnt/etc/systemd/system/$unit" ]] && echo "ok: $unit enabled" \
+    || { echo "FAIL: $unit is not enabled in the target"; exit 1; }
+done
+[[ -x /mnt/usr/bin/btrfs-assistant ]] && echo "ok: btrfs-assistant installed in the target" \
+  || { echo "FAIL: btrfs-assistant is missing from the target"; exit 1; }
+grep -q 'grub-btrfs-overlayfs' /mnt/etc/mkinitcpio.conf \
+  && echo "ok: the overlayfs initramfs hook is in mkinitcpio.conf" \
+  || { echo "FAIL: the grub-btrfs-overlayfs hook is missing from mkinitcpio.conf"; exit 1; }
+for img in initramfs-linux.img initramfs-linux-lts.img; do
+  chroot /mnt lsinitcpio "/boot/$img" 2>/dev/null | grep -q 'grub-btrfs-overlayfs' \
+    && echo "ok: $img carries the overlayfs hook" \
+    || { echo "FAIL: $img has no overlayfs hook: a snapshot boot would be read-only"; exit 1; }
+done
+# The snapshot must be as readable by GRUB as the live /boot, which is the point
+# of the padding hooks: a rollback has to produce a bootable menu again.
+for f in vmlinuz-linux vmlinuz-linux-lts initramfs-linux.img initramfs-linux-lts.img; do
+  size=$(stat -c %s "/mnt/.snapshots/1/snapshot/boot/$f" 2>/dev/null || echo 0)
+  (( size > 0 && size % 4096 == 0 )) \
+    && echo "ok: snapshot $f is $size bytes (aligned)" \
+    || { echo "FAIL: snapshot $f is $size bytes, not aligned for GRUB"; exit 1; }
+done
+chroot /mnt /usr/bin/mhelp recovery 2>/dev/null | grep -q 'snapper' \
+  && echo "ok: mhelp recovery works in the target" \
+  || { echo "FAIL: mhelp recovery printed nothing in the target"; exit 1; }
+
 step "chroot: verify the target has no live-only artefacts"
 chroot /mnt /bin/bash -c '
   set -u
@@ -625,7 +739,8 @@ chroot /mnt /bin/bash -c '
     && echo "ok: /boot padding hooks installed" \
     || { echo "FAIL /boot padding hooks missing"; rc=1; }
   grep -qE "\+ Q\".*exec_cmd" /etc/xdg/hypr/hyprland.lua \
-    && grep -qE "local mod[[:space:]]*=[[:space:]]*SUPER" /etc/xdg/hypr/hyprland.lua \
+    && grep -q "local mod" /etc/xdg/hypr/hyprland.lua \
+    && grep -q "SUPER" /etc/xdg/hypr/hyprland.lua \
     && echo "ok: hyprland.lua binds Super+Q" \
     || { echo "FAIL hyprland.lua has no Super+Q bind"; rc=1; }
   command -v dolphin >/dev/null && echo "ok: dolphin present in the target" \

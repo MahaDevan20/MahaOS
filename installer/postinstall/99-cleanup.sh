@@ -73,9 +73,12 @@ check_absent /etc/sudoers.d/10-liveuser
 check_absent /etc/systemd/system/mahadevanos-liveuser.service
 check_absent /etc/systemd/system/multi-user.target.wants/mahadevanos-liveuser.service
 check_absent /etc/mahadevanos-live
-if systemctl list-unit-files 'mahadevanos*' 2>/dev/null | grep -q mahadevanos; then
-  echo "ERROR: a MahaDevan's OS live unit is still installed" >&2
-  systemctl list-unit-files 'mahadevanos*' >&2 || true
+# Only the LIVE unit is forbidden here: mahadevanos-settings ships the permanent
+# mahadevanos-snapshot-guard.service/.timer, which must survive the cleanup.
+if systemctl --root=/ list-unit-files 'mahadevanos-liveuser*' 2>/dev/null |
+   grep -q 'mahadevanos-liveuser'; then
+  echo "ERROR: the MahaDevan's OS live unit is still installed" >&2
+  systemctl --root=/ list-unit-files 'mahadevanos-liveuser*' >&2 || true
   failed=1
 fi
 
@@ -122,6 +125,20 @@ fi
 if (( failed )); then
   echo "ERROR: live-only artefacts survived the cleanup; aborting the install" >&2
   exit 1
+fi
+
+# 7. snap-pac is switched on last. 40-snapshots.sh leaves it off because its
+#    pacman hook is AbortOnFail and snapper cannot reach its daemon from this
+#    chroot, so a snapshot attempt here would abort the package removals above.
+#    This is the last postinstall script: the installed system gets snapshots.
+if [[ -f /etc/snap-pac.ini ]]; then
+  sed -i 's/^snapshot = False$/snapshot = True/' /etc/snap-pac.ini
+  if grep -qx 'snapshot = True' /etc/snap-pac.ini; then
+    echo ":: [mahadevanos] snap-pac enabled for the installed system"
+  else
+    echo "ERROR: snap-pac is still disabled in /etc/snap-pac.ini" >&2
+    exit 1
+  fi
 fi
 
 echo ":: [mahadevanos] cleanup complete, no live-only artefacts remain"

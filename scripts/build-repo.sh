@@ -118,6 +118,17 @@ for dir in "${pkgs[@]}"; do
 
   # Inject the dependencies of ours that are already in the repository, so the
   # clean chroot can satisfy them without touching any pacman configuration.
+  # makepkg refuses to run as root, and this script may itself be elevated
+  # (MAHADEVANOS_ALLOW_ROOT=1). Reading the srcinfo as the build user is what
+  # keeps the local-dependency injection working in that case: without it the
+  # dependency list comes back empty and a package that depends on another of
+  # ours fails in the chroot with "target not found".
+  srcinfo=(makepkg --printsrcinfo)
+  if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" && "${SUDO_USER}" != root ]] &&
+     command -v runuser >/dev/null 2>&1; then
+    srcinfo=(runuser -u "$SUDO_USER" -- makepkg --printsrcinfo)
+  fi
+
   inject=()
   while read -r dep; do
     [[ -n "$dep" ]] || continue
@@ -128,7 +139,7 @@ for dir in "${pkgs[@]}"; do
       inject+=(-I "$pkgfile")
       log "injecting local dependency $dep into the chroot working copy"
     done
-  done < <( cd "$dir" && makepkg --printsrcinfo 2>/dev/null | sed -n 's/^[[:space:]]*depends = //p' )
+  done < <( cd "$dir" && "${srcinfo[@]}" 2>/dev/null | sed -n 's/^[[:space:]]*depends = //p' )
 
   log "building $name in a clean chroot with $CHROOT_BUILD"
   # archbuild only understands -h/-c/-r itself; every makechrootpkg option has to
